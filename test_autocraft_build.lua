@@ -20,6 +20,11 @@ local crafting_state = require("crafting")
 local furnace_add    = require("furnace_add")
 local furnace_take   = require("furnace_take")
 
+-- Seed the tracked position to the charger (stasis), facing the charger (-Z).
+-- The robot must be physically parked here; without this, C.pos defaults to the
+-- origin (0,0,0) and the coordinate-based navigation walks to the wrong place.
+C.pos.x, C.pos.y, C.pos.z, C.pos.facing = C.STASIS_X, C.STASIS_Y, C.STASIS_Z, 2
+
 local PAGE_SECONDS = 12
 local SMELT_FUEL = "minecraft:coal"
 
