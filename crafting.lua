@@ -209,8 +209,26 @@ local function gridIsClear()
   return true
 end
 
+-- Recipes are keyed by item id ("oc:transistor"), but build items are often
+-- requested by display label ("Transistor", "Computer Case (Tier 3)", ...).
+-- Resolve a name to its recipe whether it is given as the id/key OR the result
+-- label -- otherwise every label-named craft job fails with "no recipe" even when
+-- all the materials are in the chest.
+local labelToKey
 local function recipeFor(name)
-  return C.RECIPES and C.RECIPES[name] or nil
+  if C.RECIPES and C.RECIPES[name] then
+    return C.RECIPES[name]
+  end
+  if not labelToKey then
+    labelToKey = {}
+    for key, recipe in pairs(C.RECIPES or {}) do
+      if type(recipe.result) == "table" and recipe.result.label then
+        labelToKey[recipe.result.label] = key
+      end
+    end
+  end
+  local key = labelToKey[name]
+  return key and C.RECIPES[key] or nil
 end
 
 local function ingredientNeeds(recipe)
