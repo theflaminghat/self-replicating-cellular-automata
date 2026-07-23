@@ -430,7 +430,7 @@ return function(C)
     },
 
     ["minecraft:gold_ingot_smelt"] = {
-      result = { label = "Gold Ingot" },
+      result = { name = "minecraft:gold_ingot", label = "Gold Ingot" },
       yield = 1,
       smelt = true,
       grid = { "minecraft:gold_ore", nil, nil,
@@ -439,7 +439,7 @@ return function(C)
     },
 
     ["minecraft:iron_ingot_smelt"] = {
-      result = { label = "Iron Ingot" },
+      result = { name = "minecraft:iron_ingot", label = "Iron Ingot" },
       yield = 1,
       smelt = true,
       grid = { "minecraft:iron_ore", nil, nil,

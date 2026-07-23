@@ -277,14 +277,18 @@ local function recipeIngredients(recipe)
   return needs
 end
 
--- Build a label -> recipe-key map from any recipe that declares a result label.
+-- Build a name/label -> recipe-key map from any recipe that declares a result.
 -- This lets the expander resolve items referenced by label (as robot parts and
--- some grid entries are) back to the recipe keyed by item id.
+-- some grid entries are) OR by item id back to the recipe keyed by something
+-- else. The id bridge is what makes e.g. minecraft:iron_ingot resolve to its
+-- smelt recipe (keyed minecraft:iron_ingot_smelt), so ingots expand down to their
+-- ores instead of being treated as raw base materials.
 local function labelToRecipeKey()
   local map = {}
   for key, recipe in pairs(C.RECIPES or {}) do
-    if type(recipe.result) == "table" and recipe.result.label then
-      map[recipe.result.label] = key
+    if type(recipe.result) == "table" then
+      if recipe.result.label then map[recipe.result.label] = key end
+      if recipe.result.name then map[recipe.result.name] = key end
     end
   end
   return map
@@ -729,8 +733,6 @@ C.TRACKED_RESOURCES = {  { name = "minecraft:cobblestone", min = 128, target = 1
   { name = "minecraft:gold_ingot",  min = 32,  target = 256 },
 }
 
-local OC_MAT = "opencomputers:material"
-
 require("recipes")(C)
 
 -- ---------------------------------------------------------------------------
@@ -785,6 +787,81 @@ function C.matchesSpec(st, spec)
   if spec.damage and st.damage ~= spec.damage then return false end
   if spec.label and st.label ~= spec.label then return false end
   return true
+end
+
+-- ---------------------------------------------------------------------------
+-- Shared inventory helpers.
+--
+-- These were previously copy-pasted (with small variations) into most of the
+-- state files -- furnace_add/take, build_robot, take_robot, fill_generators,
+-- fill_buckets, crafting. They live here now so every state matches items and
+-- scans slots the same way. Item references are an id string ("minecraft:coal")
+-- or a spec table ({ name = / label = / damage = }); C.matchesSpec accepts both.
+-- ---------------------------------------------------------------------------
+
+-- Normalize an item reference to a spec table.
+function C.itemSpec(item)
+  if type(item) == "string" then return { name = item } end
+  return item
+end
+
+-- Human-readable text for an item reference.
+function C.specText(item)
+  local spec = C.itemSpec(item)
+  return spec.label or spec.name or "?"
+end
+
+-- Is internal slot `s` one of the reserve cobble slots (kept for pillaring)?
+function C.isReserveSlot(s)
+  for _, r in ipairs(C.RESERVE_COBBLE_SLOTS or {}) do
+    if r == s then return true end
+  end
+  return false
+end
+
+-- Size of the inventory the robot is facing (front), or nil if there is none.
+function C.facingFront()
+  local ok, size = pcall(inv.getInventorySize, sides.front)
+  if ok and size then return size end
+  return nil
+end
+
+-- First empty non-reserve internal slot, or nil.
+function C.freeSlot()
+  for s = 1, (C.INVENTORY_SIZE or 32) do
+    if not C.isReserveSlot(s) then
+      local ok, st = pcall(inv.getStackInInternalSlot, s)
+      if ok and not st then return s end
+    end
+  end
+  return nil
+end
+
+-- Total count of `item` across non-reserve internal slots.
+function C.heldCount(item)
+  local total = 0
+  for s = 1, (C.INVENTORY_SIZE or 32) do
+    if not C.isReserveSlot(s) then
+      local ok, st = pcall(inv.getStackInInternalSlot, s)
+      if ok and C.matchesSpec(st, item) and st.size then
+        total = total + st.size
+      end
+    end
+  end
+  return total
+end
+
+-- First non-reserve internal slot holding `item`, or nil.
+function C.findHeldSlot(item)
+  for s = 1, (C.INVENTORY_SIZE or 32) do
+    if not C.isReserveSlot(s) then
+      local ok, st = pcall(inv.getStackInInternalSlot, s)
+      if ok and C.matchesSpec(st, item) and st.size and st.size > 0 then
+        return s
+      end
+    end
+  end
+  return nil
 end
 
 C.WATER_PLACEMENTS = {  { x = 4, z = 7 },

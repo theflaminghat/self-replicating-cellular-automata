@@ -6,27 +6,31 @@ local inv = C.inv
 local sides = C.sides
 local batteryLevel = C.batteryLevel
 
-local function facingInventory()
-  local ok, size = pcall(inv.getInventorySize, sides.front)
-  if ok and size then return size end
-  return nil
-end
+-- The furnace may sit on any face of the robot. Try all six to locate it and to
+-- read/extract, rather than assuming sides.front.
+local FURNACE_SIDES = {
+  sides.down, sides.front, sides.up, sides.back, sides.left, sides.right,
+}
 
-local function freeSlot()
-  for s = 1, (C.INVENTORY_SIZE or 32) do
-    local isReserve = false
-    for _, r in ipairs(C.RESERVE_COBBLE_SLOTS) do
-      if r == s then isReserve = true break end
-    end
-    if not isReserve then
-      local ok, st = pcall(inv.getStackInInternalSlot, s)
-      if ok and not st then
-        return s
-      end
+local function furnaceSide()
+  for _, sd in ipairs(FURNACE_SIDES) do
+    local ok, size = pcall(inv.getInventorySize, sd)
+    if ok and size and size > 0 then
+      return sd
     end
   end
   return nil
 end
+
+local function furnaceStack(sd, slot)
+  local ok, st = pcall(inv.getStackInSlot, sd, slot)
+  if ok and st and st.size and st.size > 0 then
+    return st
+  end
+  return nil
+end
+
+local freeSlot = C.freeSlot
 
 local function furnace_take()
   if batteryLevel() < 0.25 then
@@ -38,8 +42,9 @@ local function furnace_take()
 
   -- Stasis -> furnace.
   C.gotoFurnaceFromStasis()
-  if not facingInventory() then
-    C.lastFurnaceError = "not facing the furnace"
+  local sd = furnaceSide()
+  if not sd then
+    C.lastFurnaceError = "no furnace found on any side"
     C.gotoStasisFromFurnace()
     return "stasis"
   end
@@ -47,15 +52,14 @@ local function furnace_take()
   -- Don't pull the output while the furnace is still smelting: the input slot
   -- being non-empty means the batch isn't finished. Leave the output where it is
   -- and collect it on a later pass once the input has been fully consumed.
-  local okIn, input = pcall(inv.getStackInSlot, sides.front, C.FURNACE_SLOT_INPUT)
-  if okIn and input and input.size and input.size > 0 then
+  if furnaceStack(sd, C.FURNACE_SLOT_INPUT) then
     C.lastFurnaceError = "still smelting; leaving output in furnace"
     C.gotoStasisFromFurnace()
     return "stasis"
   end
 
-  local ok, out = pcall(inv.getStackInSlot, sides.front, C.FURNACE_SLOT_OUTPUT)
-  if not (ok and out and out.size and out.size > 0) then
+  local out = furnaceStack(sd, C.FURNACE_SLOT_OUTPUT)
+  if not out then
     C.lastFurnaceError = "furnace output is empty"
     C.gotoStasisFromFurnace()
     return "stasis"
@@ -71,7 +75,7 @@ local function furnace_take()
   end
 
   robot.select(into)
-  local tookOk = pcall(inv.suckFromSlot, sides.front, C.FURNACE_SLOT_OUTPUT, out.size)
+  local tookOk = pcall(inv.suckFromSlot, sd, C.FURNACE_SLOT_OUTPUT, out.size)
   if not tookOk then
     C.lastFurnaceError = "could not take the output"
     C.gotoStasisFromFurnace()

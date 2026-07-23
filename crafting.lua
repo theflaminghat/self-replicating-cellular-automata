@@ -21,36 +21,40 @@ local function isCallable(v)
   return false
 end
 
+local function usableCrafting(c)
+  return c and c.craft ~= nil and isCallable(c.craft)
+end
+
 local function craftingComponent()
+  -- Preferred: the component.crafting shortcut (works when there is exactly one
+  -- crafting component).
   local ok, c = pcall(function() return C.component.crafting end)
-  if not (ok and c) then
-    return nil, "no crafting component"
+  if ok and usableCrafting(c) then
+    return c
   end
-  if c.craft == nil then
-    return nil, "crafting component has no craft"
+
+  -- Fallback: scan the component list for a "crafting" component and proxy it.
+  -- This catches setups where the shortcut doesn't resolve even though a crafting
+  -- upgrade is installed.
+  local okList, iter = pcall(C.component.list, "crafting")
+  if okList and iter then
+    for addr in iter do
+      local okP, proxy = pcall(C.component.proxy, addr)
+      if okP and usableCrafting(proxy) then
+        return proxy
+      end
+    end
   end
-  if not isCallable(c.craft) then
-    return nil, "crafting.craft is not callable (type " .. type(c.craft) .. ")"
-  end
-  return c
+
+  return nil, "no crafting component (is a Crafting Upgrade installed?)"
 end
 
-local function itemSpec(item)
-  if type(item) == "string" then
-    return { name = item }
-  end
-  return item
-end
+-- Shared item helpers (defined in common.lua).
+local itemSpec     = C.itemSpec
+local stackMatches = C.matchesSpec
 
-local function stackMatches(st, item)
-  if not st then return false end
-  local spec = itemSpec(item)
-  if spec.name and st.name ~= spec.name then return false end
-  if spec.damage and st.damage ~= spec.damage then return false end
-  if spec.label and st.label ~= spec.label then return false end
-  return true
-end
-
+-- specLabel keys a grid ingredient for aggregation: label, else name:damage, else
+-- name. Distinct from C.specText (which never appends the damage), so kept local.
 local function specLabel(item)
   local spec = itemSpec(item)
   if spec.label then return spec.label end
@@ -160,12 +164,7 @@ local function isGridSlot(slot)
   return false
 end
 
-local function isReserveSlot(slot)
-  for _, r in ipairs(C.RESERVE_COBBLE_SLOTS) do
-    if r == slot then return true end
-  end
-  return false
-end
+local isReserveSlot = C.isReserveSlot
 
 local function findParkingSlot()
   local size = C.INVENTORY_SIZE or 32

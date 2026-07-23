@@ -8,27 +8,8 @@ local batteryLevel = C.batteryLevel
 
 local ASSEMBLER_OUTPUT_SLOT = 1
 
-local function facingInventory()
-  local ok, size = pcall(inv.getInventorySize, sides.front)
-  if ok and size then return size end
-  return nil
-end
-
-local function freeSlot()
-  for s = 1, (C.INVENTORY_SIZE or 32) do
-    local isReserve = false
-    for _, r in ipairs(C.RESERVE_COBBLE_SLOTS or {}) do
-      if r == s then isReserve = true break end
-    end
-    if not isReserve then
-      local ok, st = pcall(inv.getStackInInternalSlot, s)
-      if ok and not st then
-        return s
-      end
-    end
-  end
-  return nil
-end
+local facingInventory = C.facingFront
+local freeSlot        = C.freeSlot
 
 local function take_robot()
   if batteryLevel() < 0.25 then

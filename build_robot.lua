@@ -10,32 +10,10 @@ local function fwd(n)
   for _ = 1, n do C.moveForward() end
 end
 
-local function itemSpec(item)
-  if type(item) == "string" then
-    return { name = item }
-  end
-  return item
-end
-
-local function stackMatches(st, item)
-  if not st then return false end
-  local spec = itemSpec(item)
-  if spec.name and st.name ~= spec.name then return false end
-  if spec.damage and st.damage ~= spec.damage then return false end
-  if spec.label and st.label ~= spec.label then return false end
-  return true
-end
-
-local function specText(item)
-  local spec = itemSpec(item)
-  return spec.label or spec.name or "?"
-end
-
-local function facingInventory()
-  local ok, size = pcall(inv.getInventorySize, sides.front)
-  if ok and size then return size end
-  return nil
-end
+-- Shared item/inventory helpers (defined in common.lua).
+local stackMatches    = C.matchesSpec
+local specText        = C.specText
+local facingInventory = C.facingFront
 
 
 

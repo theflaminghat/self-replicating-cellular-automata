@@ -24,11 +24,7 @@ local function fwd(n)
   for _ = 1, n do C.moveForward() end
 end
 
-local function facingInventory()
-  local ok, size = pcall(inv.getInventorySize, sides.front)
-  if ok and size then return size end
-  return nil
-end
+local facingInventory = C.facingFront
 
 local function heldCharcoal()
   local total = 0
@@ -51,21 +47,7 @@ local function findHeldSlot()
   return nil
 end
 
-local function firstEmptySlot()
-  for s = 1, (C.INVENTORY_SIZE or 32) do
-    local isReserve = false
-    for _, r in ipairs(C.RESERVE_COBBLE_SLOTS or {}) do
-      if r == s then isReserve = true break end
-    end
-    if not isReserve then
-      local ok, st = pcall(inv.getStackInInternalSlot, s)
-      if ok and not st then
-        return s
-      end
-    end
-  end
-  return nil
-end
+local firstEmptySlot = C.freeSlot
 
 local function pullCharcoal(count)
   local size = facingInventory()

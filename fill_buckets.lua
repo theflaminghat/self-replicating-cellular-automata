@@ -24,11 +24,7 @@ local function down(n)
   for _ = 1, n do C.moveDown() end
 end
 
-local function facingInventory()
-  local ok, size = pcall(inv.getInventorySize, sides.front)
-  if ok and size then return size end
-  return nil
-end
+local facingInventory = C.facingFront
 
 local function isEmptyBucket(st)
   if not st then return false end
