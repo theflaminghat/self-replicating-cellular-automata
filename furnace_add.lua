@@ -129,9 +129,11 @@ local function furnaceSlotStack(slot)
 end
 
 -- A single vanilla furnace has ONE input slot and smelts one item type at a time,
--- so this state loads exactly one job per run: the first job whose ore is present.
--- If the furnace is still working a previous batch, it is left untouched (the
--- furnace_take state collects the finished output once the input is consumed).
+-- so this state loads exactly one job per run: the first job in the list. It goes
+-- to the CHEST first and pulls the ore + fuel, THEN to the furnace -- so a busy or
+-- undetected furnace can never cause the chest step to be skipped. If the furnace
+-- is still working a previous batch, the pulled ore is carried back and the next
+-- inventory pass redeposits it.
 local function furnace_add(jobs)
   if not jobs then
     return "stasis"
@@ -149,33 +151,15 @@ local function furnace_add(jobs)
   C.lastFurnaceError = nil
   C.lastFurnaceReport = {}
 
-  -- Check the furnace first. Going to the chest to pull ore only makes sense if
-  -- the furnace is free to take it.
-  C.gotoFurnaceFromStasis()
-  if not facingInventory() then
-    C.lastFurnaceError = "not facing the furnace"
-    C.gotoStasisFromFurnace()
-    return "stasis"
-  end
-
-  local input = furnaceSlotStack(C.FURNACE_SLOT_INPUT)
-  if input then
-    -- Still smelting the previous batch; don't switch ores mid-smelt.
-    C.lastFurnaceError = "furnace still smelting " .. tostring(input.label or input.name)
-    C.gotoStasisFromFurnace()
-    return "stasis"
-  end
-
   local job = jobs[1]
   local amount = job.amount or 0
   local fuelWanted = job.fuelAmount or math.ceil(amount / 8)
 
-  -- Furnace -> chest, pull the ore and its fuel.
-  C.gotoChestFromFurnace()
+  -- Stasis -> chest, pull the ore and its fuel.
+  C.gotoChestFromStasis()
   if not facingInventory() then
     C.lastFurnaceError = "not facing the tracked chest"
-    C.gotoFurnaceFromChest()
-    C.gotoStasisFromFurnace()
+    C.gotoStasisFromChest()
     return "stasis"
   end
 
@@ -190,7 +174,7 @@ local function furnace_add(jobs)
     end
   end
 
-  -- Chest -> furnace, load input then fuel.
+  -- Chest -> furnace.
   C.gotoFurnaceFromChest()
   if not facingInventory() then
     C.lastFurnaceError = "not facing the furnace"
@@ -198,14 +182,32 @@ local function furnace_add(jobs)
     return "stasis"
   end
 
+  -- Don't switch ores mid-smelt: if the furnace still has input, leave it and
+  -- carry the pulled ore back (the inventory state redeposits it next pass).
+  local input = furnaceSlotStack(C.FURNACE_SLOT_INPUT)
+  if input then
+    C.lastFurnaceError = "furnace still smelting " .. tostring(input.label or input.name)
+    C.gotoStasisFromFurnace()
+    return "stasis"
+  end
+
   local report = { item = specText(job.item), wanted = amount, loaded = 0, fuel = 0 }
 
+  -- How much of the ore actually made it back from the chest -- reported so a
+  -- failure to smelt can be told apart: held == 0 means the chest pull failed
+  -- (wrong id/label, or nothing in the tracked chest); held > 0 with loaded == 0
+  -- means the furnace rejected the insert (e.g. a side face only accepts fuel, so
+  -- the input must be dropped from above).
   local have = math.min(amount, heldCount(job.item))
+  report.held = heldCount(job.item)
   if have > 0 then
     report.loaded = pushIntoFurnaceSlot(job.item, have, C.FURNACE_SLOT_INPUT)
-  end
-  if report.loaded == 0 then
-    report.reason = "nothing to smelt"
+    if report.loaded == 0 then
+      report.reason = "held " .. report.held ..
+        " but furnace took none (input face?)"
+    end
+  else
+    report.reason = "no ore pulled from chest"
   end
 
   if job.fuel then
