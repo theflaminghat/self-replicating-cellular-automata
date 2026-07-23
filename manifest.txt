@@ -1,0 +1,51 @@
+# manifest.txt -- list of files pull_repo downloads into /home.
+# One filename per line. Blank lines and lines starting with # are ignored.
+
+# --- runtime ---
+common.lua
+recipes.lua
+scheduler.lua
+robot.lua
+building.lua
+inventory.lua
+mining.lua
+quarry.lua
+returning.lua
+stasis.lua
+crafting.lua
+furnace_add.lua
+furnace_take.lua
+fill_generators.lua
+fill_buckets.lua
+build_robot.lua
+take_robot.lua
+farm_spruce.lua
+farm_sugarcane.lua
+farm_cactus.lua
+
+# --- diagnostics ---
+diag_craft_run.lua
+diag_crafting.lua
+diag_generators.lua
+diag_parts_order.lua
+
+# --- tests ---
+test_autocraft_build.lua
+test_build_robot.lua
+test_crafting.lua
+test_farm_cactus.lua
+test_farm_spruce.lua
+test_farm_sugarcane.lua
+test_fill_buckets.lua
+test_fill_generators.lua
+test_furnace_add.lua
+test_furnace_take.lua
+test_init.lua
+test_inventory.lua
+test_mining.lua
+test_quarry.lua
+test_take_robot.lua
+
+# --- updater ---
+pull_repo.lua
+manifest.txt
