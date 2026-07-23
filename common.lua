@@ -538,11 +538,23 @@ function C.productionPlan(name, count)
     end
     stack[item] = nil
 
+    -- For a smelt step, record the item the furnace actually CONSUMES (the single
+    -- grid ingredient), not just the item produced. Callers must feed the input
+    -- to the furnace, not the result -- e.g. cobblestone, not the stone it yields.
+    local smeltInput
+    if recipe.smelt then
+      for i = 1, 9 do
+        local g = recipe.grid and recipe.grid[i]
+        if g then smeltInput = itemName(g); break end
+      end
+    end
+
     emitted[item] = true
     steps[#steps + 1] = {
       action = recipe.smelt and "smelt" or "craft",
       name = item,
       count = qty,
+      input = smeltInput,
     }
   end
 

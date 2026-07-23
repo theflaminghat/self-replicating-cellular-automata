@@ -99,9 +99,12 @@ local produced = {}   -- name -> amount actually made
 local failed = {}     -- name -> reason
 
 -- Run one smelt step through the furnace: load it, then collect the output.
+-- The furnace consumes the recipe's INPUT (step.input, e.g. cobblestone), not the
+-- item it produces (step.name, e.g. stone). specFor makes label-only inputs (Raw
+-- Circuit Board, Lead Ore, ...) match by label.
 local function doSmelt(step)
   local jobs = { {
-    item = step.name,
+    item = C.specFor(step.input or step.name),
     fuel = SMELT_FUEL,
     amount = step.count,
     fuelAmount = math.max(1, math.ceil(step.count / 8)),
