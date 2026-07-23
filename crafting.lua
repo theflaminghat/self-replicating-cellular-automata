@@ -166,6 +166,25 @@ end
 
 local isReserveSlot = C.isReserveSlot
 
+-- Drop every non-grid, non-reserve slot holding `item` into the chest in front,
+-- and invalidate the cached chest index so a later pull sees the new stock. Used
+-- by recursive crafting so an intermediate an earlier job made is available in
+-- the chest for the job that depends on it.
+local function depositResult(item)
+  local size = C.INVENTORY_SIZE or 32
+  local dropped = false
+  for s = 1, size do
+    if not isGridSlot(s) and not isReserveSlot(s) then
+      local st = stackAt(s)
+      if st and st.size and st.size > 0 and stackMatches(st, item) then
+        robot.select(s)
+        if robot.drop() then dropped = true end
+      end
+    end
+  end
+  if dropped then invalidateChestIndex() end
+end
+
 local function findParkingSlot()
   local size = C.INVENTORY_SIZE or 32
   for s = 1, size do
@@ -420,6 +439,13 @@ local function crafting_state(jobs)
       batches = batches,
       reason = reason,
     }
+    -- Recursive crafting: return the finished item to the chest so a later job can
+    -- consume it. Opt-in (job.deposit) so single-item crafts that keep their
+    -- result in the robot -- e.g. the pickaxe the scheduler equips -- are left be.
+    if job.deposit and batches and batches > 0 then
+      local recipe = recipeFor(job.name)
+      depositResult(recipe and (recipe.result or job.name) or job.name)
+    end
   end
 
   -- Head back to the charger so the next state starts from stasis.

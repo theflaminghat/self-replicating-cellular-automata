@@ -156,33 +156,49 @@ local function craftAndEquipPickaxe()
   end
 end
 
--- Autocrafting: hand the crafting state the whole build craft list at once and
--- let it make what the chest can supply in a single trip. The number actually
--- made is computed from the crafting state's reported batches times the recipe
--- yield, and fed back into the tracked resources (base materials removed, crafted
--- item added) via C.onItemCrafted.
+-- Autocrafting: craft the whole build recursively, deepest dependency first.
+--
+-- C.buildProductionPlan returns every craft AND smelt needed to turn raw base
+-- materials into the BOM, ordered so an item's ingredients are always produced
+-- before the item itself. The smelt steps are the furnace's job (handled earlier
+-- in the weave), so here we take only the CRAFT steps, in that order, and hand
+-- them to the crafting state in one trip. The crafting state deposits each item
+-- back into the chest as it finishes, so a later step (e.g. a microchip) finds
+-- the intermediate it depends on (e.g. a transistor) already in the chest.
+--
+-- Each job counts what's already in the chest toward its target (countChest), so
+-- repeat passes don't re-craft what earlier passes (or the current one) already
+-- produced. What actually gets made is fed back into the tracked resources via
+-- C.onItemCrafted.
 local function autocraftStep()
   local builds = C.buildsNeeded()
-  local craftList = C.buildCraftList()
 
   C.lastAutocraftReport = {}
 
-  -- Hand the crafting state ONE job list for the whole pass: every craftable BOM
-  -- item, targeted at the per-build count times the number of builds. There is no
-  -- separate chest-reading trip -- the crafting state checks materials per job at
-  -- the chest and skips anything it can't supply, so a pre-check would only cost a
-  -- redundant walk back to the charger and out again. The crafting state makes a
-  -- single trip to the chest and returns to stasis itself.
   local jobs = {}
-  for _, entry in ipairs(craftList) do
-    jobs[#jobs + 1] = { name = entry.name, amount = (entry.count or 1) * builds }
+  for _, step in ipairs(C.buildProductionPlan()) do
+    if step.action == "craft" then
+      jobs[#jobs + 1] = {
+        name = step.name,
+        amount = (step.count or 1) * builds,
+        countChest = true,
+        deposit = true,
+      }
+    end
   end
 
   if #jobs == 0 then
     return  -- nothing to craft; robot is already at stasis
   end
 
-  states.crafting(jobs)
+  -- The plan can be long, so crafting may run the battery down partway and bail
+  -- with "returning" without walking home. Charge, then leave; countChest means
+  -- the next pass skips whatever this pass already made and picks up where it
+  -- stopped.
+  local result = states.crafting(jobs)
+  if result == "returning" then
+    chargeCycle()
+  end
 
   -- Fold the results back into the tracked resources, using the real amount made
   -- (batches * recipe yield) reported per job.
