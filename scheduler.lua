@@ -33,6 +33,7 @@ local states = {
   fill_generators = require("fill_generators"),
   build_robot     = require("build_robot"),
   take_robot      = require("take_robot"),
+  dispatch        = require("dispatch"),
   fill_buckets    = require("fill_buckets"),
 }
 
@@ -216,6 +217,123 @@ local function autocraftStep()
   end
 end
 
+-- Crushing: collect the sand the crusher has ground into the hopper, then -- if we
+-- still need sand and have surplus cobblestone -- grind another 64-cobblestone
+-- batch. Only cobblestone ABOVE its tracked target counts as surplus, so grinding
+-- never eats into the cobble the build needs.
+local function crushStep()
+  -- Skip on low battery; the next state drives the charge cycle.
+  if C.batteryLevel() < 0.25 then return end
+
+  C.takeFromHopper()
+
+  local counts = C.readChestCounts({ "minecraft:sand", "minecraft:cobblestone" })
+  local sandTarget, cobbleTarget = 0, 0
+  for _, r in ipairs(C.TRACKED_RESOURCES or {}) do
+    if r.name == "minecraft:sand" then sandTarget = r.target or 0 end
+    if r.name == "minecraft:cobblestone" then cobbleTarget = r.target or 0 end
+  end
+
+  local sandHave = counts["minecraft:sand"] or 0
+  local cobbleHave = counts["minecraft:cobblestone"] or 0
+  if sandHave < sandTarget and cobbleHave >= cobbleTarget + C.CRUSHER_BATCH_IN then
+    C.addToCrusher(C.CRUSHER_BATCH_IN)
+  end
+end
+
+-- ---------------------------------------------------------------------------
+-- Replication: assemble and collect offspring.
+-- ---------------------------------------------------------------------------
+
+-- Replication progress. Persisted to disk so a reboot or chunk unload mid-cycle
+-- doesn't re-build an offspring already made or forget one waiting to be
+-- dispatched.
+--   builtCount      -- offspring finished so far
+--   assembling      -- an assembly is in progress (don't load a second robot)
+--   pendingDispatch -- an offspring has been collected and still needs dispatching
+local builtCount = 0
+local assembling = false
+local pendingDispatch = false
+
+local REPL_FILE = "/home/replication.txt"
+
+local function saveReplication()
+  local f = io.open(REPL_FILE, "w")
+  if not f then return end
+  f:write(string.format("builtCount=%d\nassembling=%s\npendingDispatch=%s\n",
+    builtCount, tostring(assembling), tostring(pendingDispatch)))
+  f:close()
+end
+
+local function loadReplication()
+  local f = io.open(REPL_FILE, "r")
+  if not f then return end
+  for line in f:lines() do
+    local k, v = line:match("^(%w+)=(.*)$")
+    if k == "builtCount" then
+      builtCount = tonumber(v) or 0
+    elseif k == "assembling" then
+      assembling = (v == "true")
+    elseif k == "pendingDispatch" then
+      pendingDispatch = (v == "true")
+    end
+  end
+  f:close()
+end
+
+-- Are all the robot parts for one offspring sitting in the tracked chest?
+local function partsReady()
+  local names, need = {}, {}
+  for _, part in ipairs(C.ROBOT_PARTS or {}) do
+    local label = part.label or part.name
+    if not need[label] then names[#names + 1] = label end
+    need[label] = (need[label] or 0) + (part.count or 1)
+  end
+  local have = C.readChestCounts(names)
+  for label, n in pairs(need) do
+    if (have[label] or 0) < n then return false end
+  end
+  return true
+end
+
+-- Collect a finished offspring from the assembler. If one comes out, the current
+-- assembly is done, it counts toward the offspring this robot owes, and it now
+-- needs dispatching.
+local function takeRobotStep()
+  states.take_robot()
+  if C.lastTakeRobot and (C.lastTakeRobot.taken or 0) > 0 then
+    assembling = false
+    builtCount = builtCount + 1
+    pendingDispatch = true
+    saveReplication()
+  end
+end
+
+-- Dispatch a collected offspring (program its boot media at the computer). Only
+-- runs when one is waiting.
+local function dispatchStep()
+  if not pendingDispatch then return end
+  if C.batteryLevel() < 0.25 then return end  -- charge first; retry next pass
+  -- Only clear the pending flag if the dispatch actually finished (not a low
+  -- battery bail), so an interrupted dispatch is retried.
+  if states.dispatch() ~= "returning" then
+    pendingDispatch = false
+    saveReplication()
+  end
+end
+
+-- Start assembling the next offspring, but only when the assembler is free (not
+-- mid-build), we still owe offspring, and a full parts set is in the chest.
+local function buildStep()
+  if C.batteryLevel() < 0.25 then return end
+  if assembling then return end
+  if builtCount >= C.buildsNeeded() then return end
+  if not partsReady() then return end
+  states.build_robot()
+  assembling = true
+  saveReplication()
+end
+
 -- ---------------------------------------------------------------------------
 -- Step runner
 -- ---------------------------------------------------------------------------
@@ -274,10 +392,14 @@ WEAVE = {
   "farm_sugarcane",
   "farm_cactus",
   "inventory",
+  crushStep,
   furnaceTakeStep,
   furnaceAddStep,
   autocraftStep,
   "inventory",
+  takeRobotStep,
+  dispatchStep,
+  buildStep,
 }
 
 local function scheduler()
@@ -289,6 +411,10 @@ local function scheduler()
   C.offspringPlan = C.offspringDirections(C.robotType)
   C.baseMaterials = C.baseMaterialsForBuild()
   C.scaleTrackedResources()
+
+  -- Restore replication progress (offspring built, assembly in flight, dispatch
+  -- pending) so a reboot resumes rather than restarts.
+  loadReplication()
 
   for _, entry in ipairs(STARTUP) do
     runToCompletion(entry)

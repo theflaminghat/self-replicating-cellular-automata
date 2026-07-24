@@ -546,23 +546,24 @@ function C.productionPlan(name, count)
     end
     stack[item] = nil
 
-    -- For a smelt step, record the item the furnace actually CONSUMES (the single
-    -- grid ingredient), not just the item produced. Callers must feed the input
-    -- to the furnace, not the result -- e.g. cobblestone, not the stone it yields.
-    local smeltInput
-    if recipe.smelt then
+    -- For a smelt OR crush step, record the item the machine actually CONSUMES (the
+    -- single grid ingredient type), not just the item produced. Callers feed the
+    -- input to the machine, not the result -- e.g. cobblestone, not the sand it
+    -- yields.
+    local machineInput
+    if recipe.smelt or recipe.crush then
       for i = 1, 9 do
         local g = recipe.grid and recipe.grid[i]
-        if g then smeltInput = itemName(g); break end
+        if g then machineInput = itemName(g); break end
       end
     end
 
     emitted[item] = true
     steps[#steps + 1] = {
-      action = recipe.smelt and "smelt" or "craft",
+      action = recipe.smelt and "smelt" or (recipe.crush and "crush") or "craft",
       name = item,
       count = qty,
-      input = smeltInput,
+      input = machineInput,
     }
   end
 
@@ -617,6 +618,14 @@ end
 C.GENERATORS = { { x = 5, y = 1, z = 0 }, { x = 6, y = 1, z = 0 } }
 C.GENERATOR_FUEL_SLOT = 1
 C.GENERATOR_TARGET = 64
+
+-- The crusher (5,2,2) grinds cobblestone dropped in from above; the sand falls into
+-- the hopper directly below it (5,1,2), where the robot collects it. One batch is
+-- 64 cobblestone -> 8 sand. See C.addToCrusher / C.takeFromHopper.
+C.CRUSHER = { x = 5, y = 2, z = 2 }
+C.HOPPER = { x = 5, y = 1, z = 2 }
+C.CRUSHER_BATCH_IN = 64
+C.CRUSHER_BATCH_OUT = 8
 
 -- The furnace sits one block up (y=2) with a gap at (2,1,2) below it, so the robot
 -- can insert the smeltable through the top, fuel through a side, and pull the
@@ -1471,6 +1480,76 @@ function C.sweepAround(cx, cz, workY)
     robot.suckDown()
     robot.suck()
   end
+end
+
+-- ---------------------------------------------------------------------------
+-- Crusher: grind cobblestone into sand.
+-- ---------------------------------------------------------------------------
+
+-- Pull up to `amount` cobblestone from the tracked chest and drop it straight down
+-- into the crusher (5,2,2) from above; the sand it grinds falls into the hopper
+-- below. Defaults to one full batch (64 cobblestone -> 8 sand). Starts and ends at
+-- stasis. Returns how many cobblestone it actually loaded.
+function C.addToCrusher(amount)
+  amount = math.min(amount or C.CRUSHER_BATCH_IN, C.CRUSHER_BATCH_IN)
+  local COBBLE = "minecraft:cobblestone"
+
+  -- Stasis -> chest: pull the cobblestone into one free slot.
+  C.gotoChestFromStasis()
+  local dest = C.freeSlot()
+  local pulled = 0
+  local size = C.facingFront()
+  if dest and size then
+    robot.select(dest)
+    for s = 1, size do
+      if pulled >= amount then break end
+      local ok, st = pcall(inv.getStackInSlot, sides.front, s)
+      if ok and st and st.name == COBBLE and st.size and st.size > 0 then
+        local take = math.min(amount - pulled, st.size)
+        if inv.suckFromSlot(sides.front, s, take) then
+          pulled = pulled + take
+        end
+      end
+    end
+  end
+
+  -- Chest -> directly above the crusher (5,3,2), drop the cobblestone down into it.
+  C.gotoNoBreak(C.CRUSHER.x, C.CRUSHER.z, C.CRUSHER.y + 1)
+  if dest and pulled > 0 then
+    robot.select(dest)
+    pcall(robot.dropDown, pulled)
+  end
+
+  -- Step off the crusher column (it would block a straight descent), then go home.
+  C.face(0)
+  C.moveForward()
+  C.returnToStasis()
+  return pulled
+end
+
+-- Collect the sand the crusher ground into the hopper below it (5,1,2): stand
+-- beside the hopper and suck all the sand out. Starts and ends at stasis. Returns
+-- how many sand it took.
+function C.takeFromHopper()
+  C.gotoNoBreak(C.HOPPER.x, C.HOPPER.z + 1, C.HOPPER.y)  -- (5,1,3)
+  C.face(2)                                              -- hopper (5,1,2) in front
+  local took = 0
+  local size = C.facingFront()
+  if size then
+    for slot = 1, size do
+      local ok, st = pcall(inv.getStackInSlot, sides.front, slot)
+      if ok and st and st.name == "minecraft:sand" and st.size and st.size > 0 then
+        local dest = C.freeSlot()
+        if not dest then break end
+        robot.select(dest)
+        if inv.suckFromSlot(sides.front, slot, st.size) then
+          took = took + st.size
+        end
+      end
+    end
+  end
+  C.returnToStasis()
+  return took
 end
 
 return C

@@ -456,6 +456,18 @@ return function(C)
                nil,              nil, nil },
     },
 
+    -- The crusher grinds cobblestone into sand: 64 cobblestone -> 8 sand, i.e. 8
+    -- cobblestone per sand. crush = true marks it a crusher recipe (handled by
+    -- C.addToCrusher / C.takeFromHopper, not the crafting grid or the furnace).
+    ["minecraft:sand"] = {
+      result = { name = "minecraft:sand", label = "Sand" },
+      yield = 1,
+      crush = true,
+      grid = { "minecraft:cobblestone", "minecraft:cobblestone", "minecraft:cobblestone",
+               "minecraft:cobblestone", "minecraft:cobblestone", "minecraft:cobblestone",
+               "minecraft:cobblestone", "minecraft:cobblestone", nil },
+    },
+
     ["minecraft:piston"] = {
       result = { label = "Piston" },
       yield = 1,
