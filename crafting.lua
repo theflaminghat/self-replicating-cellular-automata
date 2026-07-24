@@ -185,6 +185,48 @@ local function depositResult(item)
   if dropped then invalidateChestIndex() end
 end
 
+-- Ingredients can come from the robot's own inventory as well as the chest (the
+-- robot carries overflow tracked items and freshly crafted intermediates). Count
+-- and pull from non-grid, non-reserve internal slots.
+local function inventoryCountOf(item)
+  local total = 0
+  local size = C.INVENTORY_SIZE or 32
+  for s = 1, size do
+    if not isGridSlot(s) and not isReserveSlot(s) then
+      local st = stackAt(s)
+      if st and st.size and stackMatches(st, item) then
+        total = total + st.size
+      end
+    end
+  end
+  return total
+end
+
+-- Total of `item` available to craft with: chest + inventory.
+local function availableCount(item)
+  return chestCountOf(item) + inventoryCountOf(item)
+end
+
+-- Move up to `count` of `item` from inventory into grid slot `gridSlot`.
+local function pullFromInventory(item, count, gridSlot)
+  local got = 0
+  local size = C.INVENTORY_SIZE or 32
+  for s = 1, size do
+    if got >= count then break end
+    if s ~= gridSlot and not isGridSlot(s) and not isReserveSlot(s) then
+      local st = stackAt(s)
+      if st and st.size and st.size > 0 and stackMatches(st, item) then
+        local take = math.min(count - got, st.size)
+        robot.select(s)
+        if robot.transferTo(gridSlot, take) then
+          got = got + take
+        end
+      end
+    end
+  end
+  return got
+end
+
 local function findParkingSlot()
   local size = C.INVENTORY_SIZE or 32
   for s = 1, size do
@@ -270,20 +312,26 @@ local function chestCanSupply(recipe, batches)
     return true
   end
   for _, need in pairs(ingredientNeeds(recipe)) do
-    if chestCountOf(need.item) < need.count * batches then
+    if availableCount(need.item) < need.count * batches then
       return false
     end
   end
   return true
 end
 
+-- Fill the grid for `mult` batches, sourcing each ingredient from the robot's own
+-- inventory first, then the chest for any remainder.
 local function loadGrid(recipe, mult)
   mult = mult or 1
   for i = 1, 9 do
     local item = recipe.grid[i]
     if item then
       local slot = GRID[i]
-      if pullFromChest(item, mult, slot) < mult then
+      local got = pullFromInventory(item, mult, slot)
+      if got < mult then
+        got = got + pullFromChest(item, mult - got, slot)
+      end
+      if got < mult then
         return false
       end
     end
@@ -295,7 +343,7 @@ local function maxMultiplier(recipe, wantBatches)
   local m = wantBatches
   if m > 64 then m = 64 end
   for _, need in pairs(ingredientNeeds(recipe)) do
-    local avail = chestCountOf(need.item)
+    local avail = availableCount(need.item)
     local canDo = math.floor(avail / need.count)
     if canDo < m then m = canDo end
   end

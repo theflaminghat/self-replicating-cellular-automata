@@ -58,19 +58,11 @@ local function dropInto(item, count, dropper)
   return moved
 end
 
-local function furnaceSlotStack(slot)
-  local ok, st = pcall(inv.getStackInSlot, sides.front, slot)
-  if ok and st and st.size and st.size > 0 then
-    return st
-  end
-  return nil
-end
-
 -- A single furnace smelts one item type at a time, so this state loads exactly
 -- one job per run: the first job in the list. It goes to the CHEST first and
--- pulls the ore + fuel, THEN to the furnace. If the furnace is still working a
--- previous batch the pulled ore is carried back and the next inventory pass
--- redeposits it.
+-- pulls the ore + fuel, THEN to the furnace. Leftover fuel (coal) in the furnace
+-- is fine -- more just stacks -- so it never bails on furnace contents; it simply
+-- adds the input on top and tops up the fuel.
 local function furnace_add(jobs)
   if not jobs then
     return "stasis"
@@ -119,16 +111,6 @@ local function furnace_add(jobs)
   C.moveUp()                            -- (2,2,3)
   if not facingInventory() then
     C.lastFurnaceError = "not facing the furnace"
-    C.moveDown()
-    C.gotoStasisFromFurnace()
-    return "stasis"
-  end
-
-  -- Don't switch ores mid-smelt: if the furnace still has input, leave it and
-  -- carry the pulled ore back (the inventory state redeposits it next pass).
-  local input = furnaceSlotStack(C.FURNACE_SLOT_INPUT)
-  if input then
-    C.lastFurnaceError = "furnace still smelting " .. tostring(input.label or input.name)
     C.moveDown()
     C.gotoStasisFromFurnace()
     return "stasis"

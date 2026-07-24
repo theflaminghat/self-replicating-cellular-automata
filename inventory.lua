@@ -24,18 +24,6 @@ local CHEST_LEVELS = C.CHEST_STACK_HEIGHT   -- 6
 local RESERVE = {}
 for _, s in ipairs(C.RESERVE_COBBLE_SLOTS or {}) do RESERVE[s] = true end
 
-local function hasAnyItems()
-  for i = 1, INVENTORY_SIZE do
-    if not RESERVE[i] then
-      local stack = inv.getStackInInternalSlot(i)
-      if stack and stack.size and stack.size > 0 then
-        return true
-      end
-    end
-  end
-  return false
-end
-
 -- ---------------------------------------------------------------------------
 -- Predefined movement within the chest wall.
 -- The robot always faces -X at a chest access cell. To move along the wall we
@@ -126,13 +114,39 @@ local function depositTrackedChest()
   end
 end
 
--- Dump every remaining internal slot into the chest in front, EXCEPT the
--- reserve cobble slots (kept for pillaring).
+-- Is this stack one of the tracked resources? Tracked items that overflow the
+-- tracked chest (it's full, or the item is already at its target) are KEPT in the
+-- robot's own inventory rather than dumped into the overflow chests, so they stay
+-- available -- the crafting state pulls ingredients from inventory as well as the
+-- chest.
+local function isTracked(stack)
+  for _, r in ipairs(C.TRACKED_RESOURCES) do
+    if C.matchesSpec(stack, C.specFor(r.name)) then
+      return true
+    end
+  end
+  return false
+end
+
+local function hasUntrackedItems()
+  for i = 1, INVENTORY_SIZE do
+    if not RESERVE[i] then
+      local stack = inv.getStackInInternalSlot(i)
+      if stack and stack.size and stack.size > 0 and not isTracked(stack) then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+-- Dump remaining internal slots into the chest in front, EXCEPT the reserve cobble
+-- slots (kept for pillaring) and tracked items (kept in inventory as overflow).
 local function dumpAllHere()
   for i = 1, INVENTORY_SIZE do
     if not RESERVE[i] then
       local stack = inv.getStackInInternalSlot(i)
-      if stack and stack.size and stack.size > 0 then
+      if stack and stack.size and stack.size > 0 and not isTracked(stack) then
         robot.select(i)
         robot.drop()
       end
@@ -140,12 +154,13 @@ local function dumpAllHere()
   end
 end
 
--- Deposit whatever is left over into the other chests, one access cell at a
--- time, until the robot is empty. Skips the tracked chest cell.
+-- Deposit untracked leftovers into the other chests, one access cell at a time,
+-- until no untracked items remain. Tracked overflow stays with the robot. Skips
+-- the tracked chest cell.
 local function depositOverflow()
   for _, z in ipairs(CHEST_ZS) do
     for level = 1, CHEST_LEVELS do
-      if not hasAnyItems() then return end
+      if not hasUntrackedItems() then return end
       local isTrackedCell =
         (z == C.TRACKED_CHEST.z and level == C.TRACKED_CHEST.y)
       if not isTrackedCell then

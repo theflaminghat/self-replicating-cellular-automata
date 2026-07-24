@@ -18,11 +18,11 @@ local function furnaceStack(slot)
   return nil
 end
 
--- A furnace smelts one item every ~10 seconds, so rather than poll we set a single
--- timer for the whole batch: (items in the input) * SMELT_SECONDS, plus a small
--- buffer for any item already partway through when we arrive.
-local SMELT_SECONDS = 10
-local SMELT_BUFFER  = 10
+-- While the furnace is still full (input not yet consumed), check again every
+-- POLL_SECONDS. MAX_POLLS caps the wait so a stalled furnace (out of fuel) can't
+-- hang the robot forever.
+local POLL_SECONDS = 20
+local MAX_POLLS    = 90
 
 local function furnace_take()
   if batteryLevel() < 0.25 then
@@ -44,11 +44,11 @@ local function furnace_take()
     return "stasis"
   end
 
-  -- Set a timer for the batch to finish smelting, then take the output. The wait
-  -- is sized to the number of items still in the input slot.
-  local input = furnaceStack(C.FURNACE_SLOT_INPUT)
-  if input then
-    os.sleep(input.size * SMELT_SECONDS + SMELT_BUFFER)
+  -- Wait for the batch to finish: while the furnace still has input to smelt, wait
+  -- POLL_SECONDS and check again. Stop at the cap so a stall doesn't hang forever.
+  for _ = 1, MAX_POLLS do
+    if not furnaceStack(C.FURNACE_SLOT_INPUT) then break end
+    os.sleep(POLL_SECONDS)
   end
 
   local out = furnaceStack(C.FURNACE_SLOT_OUTPUT)
