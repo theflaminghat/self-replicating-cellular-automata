@@ -1,7 +1,7 @@
 -- diag_generators.lua
 -- Read-only check of the fill_generators chest step. It walks stasis->chest
 -- (right, forward 3, left, forward 3, right), then reports what it finds
--- WITHOUT taking anything or fueling. Use it to see why charcoal isn't pulled.
+-- WITHOUT taking anything or fueling. Use it to see why coal isn't pulled.
 --
 -- Run with the robot at stasis (4,1,3).
 
@@ -73,13 +73,13 @@ end
 while #lines > 9 do table.remove(lines) end
 page("CHEST CONTENTS", lines)
 
--- PAGE 3: does the state's matcher recognize anything as charcoal?
-local CHARCOAL_NAME = "minecraft:charcoal"
-local CHARCOAL_LABEL = "Charcoal"
-local function isCharcoal(st)
+-- PAGE 3: does the state's matcher recognize anything as coal?
+local COAL_NAME = "minecraft:coal"
+local COAL_LABEL = "Coal"
+local function isCoal(st)
   if not st then return false end
-  if st.name == CHARCOAL_NAME then return true end
-  if st.label == CHARCOAL_LABEL then return true end
+  if st.name == COAL_NAME then return true end
+  if st.label == COAL_LABEL then return true end
   return false
 end
 
@@ -89,31 +89,31 @@ if sizeOk and size then
     local ok, st = pcall(C.inv.getStackInSlot, C.sides.front, s)
     if ok and st and st.name then
       total = total + 1
-      if isCharcoal(st) then matched = matched + 1 end
+      if isCoal(st) then matched = matched + 1 end
     end
   end
 end
-page("CHARCOAL MATCH", {
+page("COAL MATCH", {
   "looking for:",
-  "  name  = minecraft:charcoal",
-  "  label = Charcoal",
+  "  name  = minecraft:coal",
+  "  label = Coal",
   "",
   "stacks in chest : " .. total,
-  "matched charcoal: " .. matched,
+  "matched coal: " .. matched,
   (matched > 0) and "MATCH OK" or "*** NO MATCH - see page 2",
 })
 
 -- PAGE 3b (extra): actually attempt one suck and report what happens.
 if sizeOk and size then
-  -- find the first charcoal slot in the chest
+  -- find the first coal slot in the chest
   local chSlot = nil
   for s = 1, size do
     local ok, st = pcall(C.inv.getStackInSlot, C.sides.front, s)
-    if ok and isCharcoal(st) then chSlot = s break end
+    if ok and isCoal(st) then chSlot = s break end
   end
   local lines = {}
   if not chSlot then
-    lines[1] = "no charcoal slot found"
+    lines[1] = "no coal slot found"
   else
     -- pick an empty robot slot
     local dest = nil

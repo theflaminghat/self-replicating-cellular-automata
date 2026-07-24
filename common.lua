@@ -88,7 +88,9 @@ C.SLOTS.leadstone_duct = C.SLOTS.flux_duct
 -- Components dropped into the computer case during the build sequence, in the
 -- order they are added. These live in fixed inventory slots.
 C.COMPUTER_PARTS = {
-  { slot = 33, label = "EEPROM (Lua BIOS)" },
+  -- Crafted as a plain EEPROM; it becomes an "EEPROM (Lua BIOS)" once inserted
+  -- into the case, so crafting/BOM only ever deal with the plain EEPROM.
+  { slot = 33, label = "EEPROM" },
   { slot = 34, label = "Redstone Card (Tier 1)" },
   { slot = 35, label = "Hard Disk Drive (Tier 2) (2MB)" },
   { slot = 36, label = "Central Processing Unit (CPU) (Tier 2)" },
@@ -108,7 +110,7 @@ C.ROBOT_PARTS = {
   { label = "Central Processing Unit (CPU) (Tier 3)" },
   { label = "Memory (Tier 3)" },
   { label = "Hard Disk Drive (Tier 2) (2MB)" },
-  { label = "EEPROM (Lua BIOS)" },
+  { label = "EEPROM" },
   { label = "Inventory Upgrade", count = 3 },
   { label = "Redstone Card (Tier 1)" },
 }
@@ -220,7 +222,7 @@ end
 -- part lists. Quantities are per single build+robot.
 C.BUILD_BOM = {
   blocks = {
-    ["minecraft:cobblestone"]   = 143,  -- floor (BUILD_X*BUILD_Z minus overrides)
+    ["minecraft:cobblestone"]   = 399,  -- 143 floor + 256 (4 stacks) pillaring reserve
     ["minecraft:dirt"]          = 1,
     ["td:leadstone_fluxduct"]   = 5,
     ["aa:coal_generator"]       = 2,
@@ -235,9 +237,11 @@ C.BUILD_BOM = {
     ["minecraft:chest"]         = 6,
     ["minecraft:sand"]          = 8,
     ["minecraft:bucket"]        = 2,
+    ["minecraft:coal"]          = 64,  -- starting generator/furnace fuel
+    ["minecraft:diamond_pickaxe"] = 1,  -- the offspring's mining tool
     ["Cactus"]                  = 1,
     ["minecraft:reeds"]         = 7,  -- sugarcane
-    ["minecraft:sapling_spruce"] = 1,
+    ["minecraft:sapling_spruce"] = 6,  -- 1 planted + 5 spare
   },
   -- One offspring robot: the ROBOT_PARTS list (with counts) assembled in the
   -- assembler, plus the COMPUTER_PARTS dropped into the case during the build.

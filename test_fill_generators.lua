@@ -2,7 +2,7 @@
 -- Runs the real fill_generators state once, starting from the stasis spot
 -- (4,1,3).
 --
--- It goes to the tracked chest (0,1,0), takes charcoal, fills the two coal
+-- It goes to the tracked chest (0,1,0), takes coal, fills the two coal
 -- generators at (5,1,0) and (6,1,0), and comes back to stasis.
 --
 -- Short paged output: nothing scrolls off.
@@ -18,7 +18,7 @@ local fill_generators = require("fill_generators")
 local PAGE_SECONDS = 15
 -- ------------------------------------------------------------------
 
-local CHARCOAL = "minecraft:charcoal"
+local COAL = "minecraft:coal"
 
 local term
 pcall(function() term = require("term") end)
@@ -37,11 +37,11 @@ local function page(title, lines)
   os.sleep(PAGE_SECONDS)
 end
 
-local function heldCharcoal()
+local function heldCoal()
   local total = 0
   for s = 1, (C.INVENTORY_SIZE or 32) do
     local ok, st = pcall(C.inv.getStackInInternalSlot, s)
-    if ok and st and st.name == CHARCOAL and st.size then
+    if ok and st and st.name == COAL and st.size then
       total = total + st.size
     end
   end
@@ -51,7 +51,7 @@ end
 C.pos.x, C.pos.y, C.pos.z, C.pos.facing = 4, 1, 3, 2
 
 local startX, startZ = C.pos.x, C.pos.z
-local charcoalBefore = heldCharcoal()
+local coalBefore = heldCoal()
 
 local moves = 0
 local origFwd = C.moveForward
@@ -97,19 +97,19 @@ page("FUELED", {
   "gen (5,1,0) : " .. tostring(fueled[1] or 0),
   "gen (6,1,0) : " .. tostring(fueled[2] or 0),
   "",
-  ((fueled[1] or 0) + (fueled[2] or 0) > 0) and "charcoal delivered"
+  ((fueled[1] or 0) + (fueled[2] or 0) > 0) and "coal delivered"
                                              or "nothing delivered",
 })
 
--- PAGE 4: charcoal accounting
-local charcoalAfter = heldCharcoal()
-page("CHARCOAL", {
-  "held before: " .. charcoalBefore,
-  "held after : " .. charcoalAfter,
+-- PAGE 4: coal accounting
+local coalAfter = heldCoal()
+page("COAL", {
+  "held before: " .. coalBefore,
+  "held after : " .. coalAfter,
   "leftover carried back to stasis",
   "",
-  (charcoalAfter == 0) and "none left over"
-                        or (charcoalAfter .. " spare in inventory"),
+  (coalAfter == 0) and "none left over"
+                        or (coalAfter .. " spare in inventory"),
 })
 
 clear()

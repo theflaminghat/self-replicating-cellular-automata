@@ -4,6 +4,7 @@ local robot = C.robot
 local pos = C.pos
 local inv = C.inv
 local sides = C.sides
+local os = C.os
 local batteryLevel = C.batteryLevel
 
 local function fwd(n)
@@ -106,6 +107,62 @@ local function dropSlotToFront(slot)
   return 0
 end
 
+-- Component slots in the computer case used to flash the offspring's parts.
+local COMP_EEPROM_SLOT = 10
+local COMP_HDD_SLOT = 7
+
+-- Before loading the assembler, use the running computer (the case at 7,1,2, with
+-- its power button on top at 7,2,2) to flash a Lua BIOS onto a blank EEPROM and
+-- install the OS onto a blank hard drive, then carry those to the assembler for
+-- the offspring. Assumes the robot is at the assembler stand (6,1,3) facing the
+-- assembler; it steps over to the computer and back.
+local function flashComputer()
+  -- Assembler stand (6,1,3) -> computer stand (7,1,3), case in front.
+  C.face(1)
+  C.moveForward()
+  C.face(2)
+
+  -- Turn the computer on: up to the button on top of the case, press it, come back
+  -- down. (Same button position the assembler press uses; try each face.)
+  C.moveUp()
+  for _, side in ipairs({ sides.front, sides.up, sides.down }) do
+    local ok, res = pcall(robot.use, side)
+    if ok and res == "block_activated" then break end
+  end
+  C.moveDown()
+  os.sleep(3)
+
+  -- Slot 10: pull the Lua-BIOS EEPROM out, drop the blank EEPROM in. The harvested
+  -- Lua-BIOS EEPROM becomes the offspring's, so repoint its held slot.
+  local luaBios = C.freeSlot()
+  if luaBios then
+    robot.select(luaBios)
+    pcall(inv.suckFromSlot, sides.front, COMP_EEPROM_SLOT, 1)
+  end
+  local blank = heldSlotOf["EEPROM"]
+  if blank then
+    robot.select(blank)
+    pcall(inv.dropIntoSlot, sides.front, COMP_EEPROM_SLOT, 1)
+  end
+  if luaBios then heldSlotOf["EEPROM"] = luaBios end
+  os.sleep(3)
+
+  -- Slot 7: drop the blank hard drive in, wait for the OS to install, take it back.
+  local hdd = heldSlotOf["Hard Disk Drive (Tier 2) (2MB)"]
+  if hdd then
+    robot.select(hdd)
+    pcall(inv.dropIntoSlot, sides.front, COMP_HDD_SLOT, 1)
+    os.sleep(18)
+    robot.select(hdd)
+    pcall(inv.suckFromSlot, sides.front, COMP_HDD_SLOT, 1)
+  end
+
+  -- Computer stand (7,1,3) -> assembler stand (6,1,3), assembler in front.
+  C.face(3)
+  C.moveForward()
+  C.face(2)
+end
+
 local function build_robot()
   if batteryLevel() < 0.25 then
     return "returning"
@@ -140,6 +197,15 @@ local function build_robot()
   C.gotoAssemblerFromChest()
   if not facingInventory() then
     C.lastBuildError = "not facing the assembler"
+    C.gotoStasisFromAssembler()
+    return "stasis"
+  end
+
+  -- Before loading the assembler, flash the offspring's EEPROM and hard drive at
+  -- the computer next door, then come back to the assembler stand.
+  flashComputer()
+  if not facingInventory() then
+    C.lastBuildError = "not facing the assembler after flashing"
     C.gotoStasisFromAssembler()
     return "stasis"
   end

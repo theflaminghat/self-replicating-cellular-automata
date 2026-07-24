@@ -464,14 +464,6 @@ return function(C)
                "minecraft:cobblestone",           "minecraft:redstone",             "minecraft:cobblestone" },
     },
 
-    ["oc:eeprom_luabios"] = {
-      result = { label = "EEPROM (Lua BIOS)" },
-      yield = 1,
-      grid = { { label = "Gold Nugget" }, { label = "Transistor" },       { label = "Gold Nugget" },
-               "minecraft:paper",         { label = "Microchip (Tier 1)" }, "minecraft:paper",
-               { label = "Gold Nugget" }, "minecraft:redstone_torch",     { label = "Gold Nugget" } },
-    },
-
     ["minecraft:bucket"] = {
       result = { label = "Bucket" },
       yield = 1,
