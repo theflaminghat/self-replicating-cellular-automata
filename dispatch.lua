@@ -1,12 +1,14 @@
 -- dispatch.lua
--- Dispatch a finished offspring at the computer (the case at 7,1,2, with its power
--- button on top at 7,2,2). The robot should already be carrying the offspring robot
--- plus the full BOM of resources for it. The sequence:
---   go to the computer, turn it on,
---   place a hard drive in (slot 7) to copy the OS onto, wait 18s,
---   take the EEPROM (Lua BIOS) out of slot 10 and drop a fresh EEPROM in, wait 3s,
---   take the redstone card out of slot 1 and drop a new redstone card in, wait 3s,
---   press the button on top, then return to stasis.
+-- Dispatch a finished offspring. Two phases:
+--   1. At the computer (case at 7,1,2, button on top at 7,2,2): turn it on, place a
+--      hard drive in slot 7 to copy the OS onto, wait 18s, take the drive back out,
+--      swap the EEPROM (Lua BIOS) in slot 10 for a fresh one (wait 3s), swap the
+--      redstone card in slot 1 for a new one (wait 3s), press the button, and go
+--      back to stasis.
+--   2. From stasis, carry the offspring (and its BOM payload) out toward its compass
+--      direction, bridging with reserve cobble, place the robot, and deposit the
+--      resources into it, then return to stasis.
+-- The direction (N/E/S/W) is passed in by the scheduler.
 
 local C = require("common")
 
@@ -16,6 +18,10 @@ local inv = C.inv
 local sides = C.sides
 local os = C.os
 local batteryLevel = C.batteryLevel
+
+local moveForward, moveUp, moveDown, moveBack =
+  C.moveForward, C.moveUp, C.moveDown, C.moveBack
+local turnRight, turnLeft = C.turnRight, C.turnLeft
 
 local COMP_REDSTONE_SLOT = 1
 local COMP_HDD_SLOT = 7
@@ -37,8 +43,7 @@ local function slotWithLabel(label)
   return nil
 end
 
--- Press the button on top of the case (robot is one block above the stand). Tries
--- each face and returns true on block_activated.
+-- Press the button on top of the case (robot is one block above the stand).
 local function pressButton()
   for _, side in ipairs({ sides.front, sides.up, sides.down }) do
     local ok, res = pcall(robot.use, side)
@@ -54,6 +59,15 @@ local function placeIntoComputer(label, compSlot)
   robot.select(s)
   local ok, done = pcall(inv.dropIntoSlot, sides.front, compSlot, 1)
   return (ok and done) and true or false
+end
+
+-- Suck one item out of the computer's `compSlot` into a free robot slot.
+local function takeFromComputer(compSlot)
+  local into = C.freeSlot()
+  if not into then return false end
+  robot.select(into)
+  local ok = pcall(inv.suckFromSlot, sides.front, compSlot, 1)
+  return ok and true or false
 end
 
 -- Take the item in the computer's `compSlot` out into the robot, then drop the
@@ -72,35 +86,118 @@ local function swapComputerSlot(newLabel, compSlot)
   return (ok and done) and true or false
 end
 
-local function dispatch()
+-- ---------------------------------------------------------------------------
+-- Placement helpers.
+-- ---------------------------------------------------------------------------
+
+local function fwd(n) for _ = 1, n do moveForward() end end
+local function up(n) for _ = 1, n do moveUp() end end
+local function down(n) for _ = 1, n do moveDown() end end
+
+-- Bridge forward `n` cells, laying a reserve-cobble block under each new cell.
+local function bridge(n)
+  for _ = 1, n do
+    moveForward()
+    C.placeReserveCobbleDown()
+  end
+end
+
+-- Place the collected offspring robot in front.
+local function placeOffspringRobot()
+  for s = 1, (C.INVENTORY_SIZE or 32) do
+    local ok, st = pcall(inv.getStackInInternalSlot, s)
+    if ok and st and st.size and st.size > 0 then
+      if st.name == "opencomputers:robot"
+          or (st.label and string.find(st.label, "Robot", 1, true)) then
+        robot.select(s)
+        pcall(robot.place)
+        return true
+      end
+    end
+  end
+  return false
+end
+
+-- Deposit every non-reserve carried item into the robot in front (the offspring),
+-- handing it its BOM payload. Reserve cobble stays with the parent.
+local function depositResources()
+  for s = 1, (C.INVENTORY_SIZE or 32) do
+    if not C.isReserveSlot(s) then
+      local ok, st = pcall(inv.getStackInInternalSlot, s)
+      if ok and st and st.size and st.size > 0 then
+        robot.select(s)
+        pcall(robot.drop)
+      end
+    end
+  end
+end
+
+-- Carry the offspring out toward `dir`, bridge to its spot, place it, hand over the
+-- resources, then return to stasis. Movements are the fixed per-direction routes;
+-- the robot starts at stasis (4,1,3) facing the charger (-Z).
+local function placeOffspring(dir)
+  if dir == "N" then
+    turnRight(); fwd(3); turnRight(); fwd(12); turnLeft(); fwd(1); turnRight()
+    bridge(17)
+    moveBack()
+  elseif dir == "E" then
+    turnLeft(); fwd(4); turnRight(); fwd(3); turnLeft()
+    bridge(24)
+    moveBack()
+  elseif dir == "S" then
+    up(6); turnRight(); fwd(4); turnLeft(); fwd(5); down(6)
+    C.placeReserveCobbleDown()   -- footing before bridging
+    bridge(31)
+    moveBack()
+  elseif dir == "W" then
+    up(6); turnRight(); fwd(4); turnLeft(); fwd(4); turnRight(); fwd(1); down(6)
+    C.placeReserveCobbleDown()   -- footing before bridging
+    bridge(31)
+    moveBack()
+  else
+    return  -- unknown direction; nothing to do
+  end
+
+  placeOffspringRobot()
+  depositResources()
+
+  -- Fly home (over the terrain and the bridge) to stasis.
+  C.gotoNoBreak(C.STASIS_X, C.STASIS_Z, C.STASIS_Y)
+  C.face(2)
+end
+
+-- ---------------------------------------------------------------------------
+
+local function dispatch(direction)
   if batteryLevel() < 0.25 then
     return "returning"
   end
   C.lastDispatchError = nil
-  C.lastDispatch = { hdd = false, eeprom = false, redstone = false }
+  C.lastDispatch = { hdd = false, eeprom = false, redstone = false, dir = direction }
 
   -- Stasis -> assembler stand (6,1,3) -> computer stand (7,1,3), case in front.
   C.gotoAssemblerFromStasis()
   C.face(1)
-  C.moveForward()
+  moveForward()
   C.face(2)
   if not C.facingFront() then
     C.lastDispatchError = "not facing the computer"
     C.face(3)
-    C.moveForward()
+    moveForward()
     C.face(2)
     C.gotoStasisFromAssembler()
     return "stasis"
   end
 
   -- Turn the computer on (button on top).
-  C.moveUp()
+  moveUp()
   pressButton()
-  C.moveDown()
+  moveDown()
 
-  -- Place the hard drive to copy the OS onto it.
+  -- Place the hard drive, wait for the OS to copy, then take it back out.
   C.lastDispatch.hdd = placeIntoComputer(HDD_LABEL, COMP_HDD_SLOT)
   os.sleep(18)
+  takeFromComputer(COMP_HDD_SLOT)
 
   -- Swap the EEPROM: Lua BIOS out, fresh EEPROM in (to be flashed).
   C.lastDispatch.eeprom = swapComputerSlot(EEPROM_LABEL, COMP_EEPROM_SLOT)
@@ -111,15 +208,18 @@ local function dispatch()
   os.sleep(3)
 
   -- Press the button on top of the computer.
-  C.moveUp()
+  moveUp()
   pressButton()
-  C.moveDown()
+  moveDown()
 
   -- Computer stand -> assembler stand -> stasis.
   C.face(3)
-  C.moveForward()
+  moveForward()
   C.face(2)
   C.gotoStasisFromAssembler()
+
+  -- Now carry the offspring out to its compass direction and set it up.
+  placeOffspring(direction)
   return "stasis"
 end
 

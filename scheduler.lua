@@ -314,9 +314,11 @@ end
 local function dispatchStep()
   if not pendingDispatch then return end
   if C.batteryLevel() < 0.25 then return end  -- charge first; retry next pass
+  -- Direction for the offspring just collected (its index is builtCount).
+  local dir = (C.offspringPlan or {})[builtCount]
   -- Only clear the pending flag if the dispatch actually finished (not a low
   -- battery bail), so an interrupted dispatch is retried.
-  if states.dispatch() ~= "returning" then
+  if states.dispatch(dir) ~= "returning" then
     pendingDispatch = false
     saveReplication()
   end

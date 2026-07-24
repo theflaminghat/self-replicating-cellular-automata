@@ -21,6 +21,11 @@ local dispatch = require("dispatch")
 
 local PAGE_SECONDS = 15
 
+-- Direction to place the offspring: "N", "E", "S", or "W", or nil to run only the
+-- computer sequence (no placement / bridging). Placement moves the robot far out
+-- and bridges with reserve cobble, so only set this once the base is built.
+local DIR = nil
+
 local term
 pcall(function() term = require("term") end)
 local function clear()
@@ -53,7 +58,7 @@ end
 
 clear()
 print("dispatch: running (~24s at computer) ...")
-local ok, nextState = pcall(dispatch)
+local ok, nextState = pcall(dispatch, DIR)
 C.moveForward = origFwd
 
 -- PAGE 1: crash / error
@@ -81,9 +86,10 @@ page("POSITION", {
 -- PAGE 3: which swaps moved an item
 local d = C.lastDispatch or {}
 page("SWAPS", {
-  "hard drive placed : " .. tostring(d.hdd or false),
-  "eeprom swapped    : " .. tostring(d.eeprom or false),
-  "redstone swapped  : " .. tostring(d.redstone or false),
+  "direction : " .. tostring(DIR or "none (computer only)"),
+  "hard drive: " .. tostring(d.hdd or false),
+  "eeprom    : " .. tostring(d.eeprom or false),
+  "redstone  : " .. tostring(d.redstone or false),
   "",
   "false = the robot wasn't carrying",
   "that part (or the slot was empty)",
