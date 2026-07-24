@@ -7,11 +7,11 @@ local sides = C.sides
 local os = C.os
 local batteryLevel = C.batteryLevel
 
-local facingInventory = C.facingFront
-local freeSlot        = C.freeSlot
+local freeSlot = C.freeSlot
 
+-- The output is taken from UNDER the furnace, so read its slots from the up face.
 local function furnaceStack(slot)
-  local ok, st = pcall(inv.getStackInSlot, sides.front, slot)
+  local ok, st = pcall(inv.getStackInSlot, sides.up, slot)
   if ok and st and st.size and st.size > 0 then
     return st
   end
@@ -32,10 +32,14 @@ local function furnace_take()
   C.lastFurnaceError = nil
   C.lastFurnaceTake = { taken = 0, item = nil }
 
-  -- Stasis -> furnace.
+  -- Stasis -> furnace base stand (2,1,3), then forward into the gap (2,1,2)
+  -- directly below the furnace, where its bottom face (the output) is reachable.
   C.gotoFurnaceFromStasis()
-  if not facingInventory() then
-    C.lastFurnaceError = "not facing the furnace"
+  C.moveForward()                        -- (2,1,2), under the furnace
+  local ok, size = pcall(inv.getInventorySize, sides.up)
+  if not (ok and size) then
+    C.lastFurnaceError = "no furnace above the gap"
+    C.moveBack()
     C.gotoStasisFromFurnace()
     return "stasis"
   end
@@ -50,6 +54,7 @@ local function furnace_take()
   local out = furnaceStack(C.FURNACE_SLOT_OUTPUT)
   if not out then
     C.lastFurnaceError = "furnace output is empty"
+    C.moveBack()
     C.gotoStasisFromFurnace()
     return "stasis"
   end
@@ -59,14 +64,17 @@ local function furnace_take()
   local into = freeSlot()
   if not into then
     C.lastFurnaceError = "no free slot for the output"
+    C.moveBack()
     C.gotoStasisFromFurnace()
     return "stasis"
   end
 
+  -- Pull the smelted items up out of the furnace's bottom face.
   robot.select(into)
-  local tookOk = pcall(robot.suck, out.size)
+  local tookOk = pcall(robot.suckUp, out.size)
   if not tookOk then
     C.lastFurnaceError = "could not take the output"
+    C.moveBack()
     C.gotoStasisFromFurnace()
     return "stasis"
   end
@@ -78,7 +86,8 @@ local function furnace_take()
     C.lastFurnaceError = "took nothing"
   end
 
-  -- Furnace -> stasis. Output stays in the robot's inventory.
+  -- Back up to (2,1,3), then to stasis. Output stays in the robot's inventory.
+  C.moveBack()
   C.gotoStasisFromFurnace()
   return "stasis"
 end

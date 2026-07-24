@@ -113,10 +113,13 @@ local function furnace_add(jobs)
     end
   end
 
-  -- Chest -> furnace.
+  -- Chest -> furnace base stand (2,1,3), then up one to (2,2,3), beside the raised
+  -- furnace at (2,2,2).
   C.gotoFurnaceFromChest()
+  C.moveUp()                            -- (2,2,3)
   if not facingInventory() then
     C.lastFurnaceError = "not facing the furnace"
+    C.moveDown()
     C.gotoStasisFromFurnace()
     return "stasis"
   end
@@ -126,26 +129,27 @@ local function furnace_add(jobs)
   local input = furnaceSlotStack(C.FURNACE_SLOT_INPUT)
   if input then
     C.lastFurnaceError = "furnace still smelting " .. tostring(input.label or input.name)
+    C.moveDown()
     C.gotoStasisFromFurnace()
     return "stasis"
   end
 
   local report = { item = specText(job.item), wanted = amount, loaded = 0, fuel = 0 }
 
-  -- Load the smeltable INPUT through the top face: climb one up and one forward to
-  -- sit directly above the furnace, drop down into it, then return to the side
-  -- stand. held == 0 means the chest pull failed (wrong id/label, or nothing in
-  -- the tracked chest); held > 0 with loaded == 0 means the furnace took no input.
+  -- Load the smeltable INPUT through the top face: from (2,2,3), one up and one
+  -- forward to sit above the furnace at (2,3,2), drop down into it, then return.
+  -- held == 0 means the chest pull failed (wrong id/label, or nothing in the
+  -- tracked chest); held > 0 with loaded == 0 means the furnace took no input.
   local have = math.min(amount, heldCount(job.item))
   report.held = have
   if have > 0 then
-    local up = C.moveUp()               -- (2,2,3)
-    local overFurnace = up and C.moveForward()  -- (2,2,2), above the furnace
+    local up = C.moveUp()               -- (2,3,3)
+    local overFurnace = up and C.moveForward()  -- (2,3,2), above the furnace
     if overFurnace then
       report.loaded = dropInto(job.item, have, robot.dropDown)
-      C.moveBack()                      -- (2,2,3)
+      C.moveBack()                      -- (2,3,3)
     end
-    if up then C.moveDown() end         -- back to (2,1,3), the side stand
+    if up then C.moveDown() end         -- back to (2,2,3)
     if not overFurnace then
       report.reason = "could not climb above furnace"
     elseif report.loaded == 0 then
@@ -155,7 +159,7 @@ local function furnace_add(jobs)
     report.reason = "no ore pulled from chest"
   end
 
-  -- Load FUEL from the side stand: robot.drop puts it into the fuel slot.
+  -- Load FUEL from the side stand (2,2,3): robot.drop puts it in the fuel slot.
   if job.fuel then
     local haveFuel = math.min(fuelWanted, heldCount(job.fuel))
     if haveFuel > 0 then
@@ -168,6 +172,7 @@ local function furnace_add(jobs)
 
   C.lastFurnaceReport[#C.lastFurnaceReport + 1] = report
 
+  C.moveDown()                          -- (2,2,3) -> (2,1,3) base stand
   C.gotoStasisFromFurnace()
   return "stasis"
 end

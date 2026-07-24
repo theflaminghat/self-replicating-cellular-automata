@@ -62,6 +62,18 @@ local function building()
     end
   end
 
+  -- The furnace is raised one block (to 2,2,2) so smelted output can be pulled
+  -- from underneath it. Place a cobblestone on the furnace floor cell (2,1,2), set
+  -- the furnace on top of it, then drop down beside it and break the cobblestone
+  -- out, leaving a gap the robot can stand in to reach the furnace's bottom face.
+  gotoNoBreak(C.FURNACE.x, C.FURNACE.z, 2)      -- (2, ?, 2), above the floor cell
+  placeCobbleDown()                             -- cobble at (2,1,2)
+  moveUp()                                       -- up to (2,3,2)
+  placeSlotDown(C.SLOTS.furnace)                 -- furnace at (2,2,2)
+  gotoNoBreak(C.FURNACE.x, C.FURNACE.z + 1, 1)  -- down beside it, (2,1,3)
+  C.face(2)                                       -- face the cobble at (2,1,2)
+  while robot.detect() do robot.swing() end      -- break it, opening the gap
+
   for _, c in ipairs(C.CHEST_PLACEMENTS) do
     gotoNoBreak(c.x, c.z, 2)
     for level = 1, C.CHEST_STACK_HEIGHT do

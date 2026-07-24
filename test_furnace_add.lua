@@ -92,8 +92,8 @@ page("LOADED", l3)
 -- PAGE 4: furnace contents now (robot is at stasis, so this is last known)
 local l4 = {
   "furnace at " .. C.FURNACE.x .. "," .. C.FURNACE.y .. "," .. C.FURNACE.z,
-  "stand at   " .. C.FURNACE_STAND.x .. "," .. C.FURNACE_STAND.z ..
-    " f=" .. C.FURNACE_STAND.facing,
+  "input from top, fuel from side",
+  "output from below",
   "",
   "input slot : " .. C.FURNACE_SLOT_INPUT,
   "fuel slot  : " .. C.FURNACE_SLOT_FUEL,

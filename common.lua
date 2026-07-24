@@ -614,8 +614,11 @@ C.GENERATORS = { { x = 5, y = 1, z = 0 }, { x = 6, y = 1, z = 0 } }
 C.GENERATOR_FUEL_SLOT = 1
 C.GENERATOR_TARGET = 64
 
-C.FURNACE = { x = 2, y = 1, z = 2 }
-C.FURNACE_STAND = { x = 3, y = 1, z = 2, facing = 3 }
+-- The furnace sits one block up (y=2) with a gap at (2,1,2) below it, so the robot
+-- can insert the smeltable through the top, fuel through a side, and pull the
+-- output from underneath. It is NOT in C.PLACEMENTS -- building.lua raises it with
+-- a dedicated sequence (place cobble, set furnace on top, break the cobble out).
+C.FURNACE = { x = 2, y = 2, z = 2 }
 C.FURNACE_SLOT_INPUT = 1
 C.FURNACE_SLOT_FUEL = 2
 C.FURNACE_SLOT_OUTPUT = 3
@@ -630,7 +633,6 @@ C.PLACEMENTS = {
   { x = 7, z = 2, slot = C.SLOTS.case3 },
   { x = 6, z = 2, slot = C.SLOTS.assembler },
   { x = 5, z = 2, slot = C.SLOTS.hopper },
-  { x = 2, z = 2, slot = C.SLOTS.furnace },
   { x = 4, z = 2, slot = C.SLOTS.charger },
 }
 
