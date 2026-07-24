@@ -340,8 +340,13 @@ local function loadGrid(recipe, mult)
 end
 
 local function maxMultiplier(recipe, wantBatches)
+  local yield = recipe.yield or 1
   local m = wantBatches
   if m > 64 then m = 64 end
+  -- Never make more than one output stack (64) in a single craft, or the result
+  -- overflows its slot -- possibly into the crafting grid.
+  local perStack = math.max(1, math.floor(64 / yield))
+  if m > perStack then m = perStack end
   for _, need in pairs(ingredientNeeds(recipe)) do
     local avail = availableCount(need.item)
     local canDo = math.floor(avail / need.count)
@@ -351,36 +356,31 @@ local function maxMultiplier(recipe, wantBatches)
   return m
 end
 
-local function selectResultSlot(item)
+-- Craft the result into a FRESH empty non-grid, non-reserve slot. Because each
+-- craft yields at most one stack (maxMultiplier caps it), an empty slot always has
+-- room -- so the result never overflows into another slot, and in particular never
+-- spills into the crafting grid.
+local function selectResultSlot()
   local size = C.INVENTORY_SIZE or 32
   for s = 1, size do
-    if not isGridSlot(s) then
-      local st = stackAt(s)
-      if stackMatches(st, item) then
-        robot.select(s)
-        return true
-      end
-    end
-  end
-  for s = 1, size do
-    if not isGridSlot(s) then
-      if not stackAt(s) then
-        robot.select(s)
-        return true
-      end
+    if not isGridSlot(s) and not isReserveSlot(s) and not stackAt(s) then
+      robot.select(s)
+      return true
     end
   end
   return false
 end
 
-local function craftOnce(item, recipe, crafting, count)
-  if not selectResultSlot(item) then
+local function craftOnce(recipe, crafting, count)
+  if not selectResultSlot() then
     return false
   end
   return crafting.craft(count or recipe.yield)
 end
 
-local MAX_BATCHES = 64
+-- Safety cap on loop passes. Each pass makes up to one output stack, so this many
+-- passes covers any realistic job while still bounding a runaway loop.
+local MAX_PASSES = 64
 
 local function runJob(job, crafting)
   local recipe = recipeFor(job.name)
@@ -401,7 +401,7 @@ local function runJob(job, crafting)
     return n
   end
 
-  while batches < MAX_BATCHES do
+  for _ = 1, MAX_PASSES do
     if batteryLevel() < 0.25 then
       return batches, "low battery"
     end
@@ -422,7 +422,7 @@ local function runJob(job, crafting)
       clearGrid()
       return batches, "could not load grid"
     end
-    if not craftOnce(resultItem, recipe, crafting, yield * mult) then
+    if not craftOnce(recipe, crafting, yield * mult) then
       clearGrid()
       return batches, "craft failed"
     end
