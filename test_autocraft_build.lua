@@ -103,22 +103,32 @@ end
 local produced = {}   -- name -> amount actually made
 local failed = {}     -- name -> reason
 
--- Run one smelt step through the furnace: load it, then collect the output.
+-- Run one smelt step through the furnace, a stack at a time.
 -- The furnace consumes the recipe's INPUT (step.input, e.g. cobblestone), not the
 -- item it produces (step.name, e.g. stone). specFor makes label-only inputs (Raw
--- Circuit Board, Lead Ore, ...) match by label.
+-- Circuit Board, Lead Ore, ...) match by label. A furnace holds at most 64 input,
+-- so the step is broken into 64-item batches; each batch is loaded, and the count
+-- is credited only from what furnace_take actually pulls out (furnace_take waits
+-- for the batch to finish first). A batch that yields nothing stops the loop.
 local function doSmelt(step)
-  local jobs = { {
-    item = C.specFor(step.input or step.name),
-    fuel = SMELT_FUEL,
-    amount = step.count,
-    fuelAmount = math.max(1, math.ceil(step.count / 8)),
-  } }
-  furnace_add(jobs)
-  furnace_take()
-  -- The furnace states don't report a count, so treat a completed pass as the
-  -- requested amount; the final chest check below is the real verification.
-  produced[step.name] = (produced[step.name] or 0) + step.count
+  local input = C.specFor(step.input or step.name)
+  local remaining = step.count
+  local made = 0
+  while remaining > 0 do
+    local batch = math.min(remaining, 64)
+    furnace_add({ {
+      item = input,
+      fuel = SMELT_FUEL,
+      amount = batch,
+      fuelAmount = math.max(1, math.ceil(batch / 8)),
+    } })
+    furnace_take()
+    local taken = (C.lastFurnaceTake and C.lastFurnaceTake.taken) or 0
+    made = made + taken
+    if taken == 0 then break end
+    remaining = remaining - batch
+  end
+  produced[step.name] = (produced[step.name] or 0) + made
 end
 
 -- Run one craft step through the crafting state and record the real yield.

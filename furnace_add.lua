@@ -38,18 +38,18 @@ local function pullFromFront(item, count)
   return got
 end
 
--- Drop up to `count` of `item` into the inventory in front with the basic
--- robot.drop (the robot is facing the furnace). Loading the smeltable first lands
--- it in the input slot; the fuel, dropped afterwards, goes to the fuel slot since
--- the input is then occupied.
-local function dropFront(item, count)
+-- The smeltable INPUT can only be inserted through the furnace's TOP face, so the
+-- robot climbs directly above the furnace and drops DOWN into it. FUEL goes in
+-- through a SIDE face, so it is dropped in front from the side stand. `dropper` is
+-- the drop function (robot.dropDown for the input, robot.drop for fuel).
+local function dropInto(item, count, dropper)
   local moved = 0
   while moved < count do
     local from = findHeldSlot(item)
     if not from then break end
     robot.select(from)
     local before = heldCount(item)
-    local ok, done = pcall(robot.drop, count - moved)
+    local ok, done = pcall(dropper, count - moved)
     if not (ok and done) then break end
     local justMoved = before - heldCount(item)
     if justMoved <= 0 then break end
@@ -89,7 +89,9 @@ local function furnace_add(jobs)
   C.lastFurnaceReport = {}
 
   local job = jobs[1]
-  local amount = job.amount or 0
+  -- A furnace input slot holds at most a stack, so never load more than 64 in one
+  -- pass; larger amounts are broken into multiple jobs by the caller.
+  local amount = math.min(job.amount or 0, 64)
   local fuelWanted = job.fuelAmount or math.ceil(amount / 8)
 
   -- Stasis -> chest, pull the ore and its fuel.
@@ -130,26 +132,34 @@ local function furnace_add(jobs)
 
   local report = { item = specText(job.item), wanted = amount, loaded = 0, fuel = 0 }
 
-  -- Load the smeltable first, then the fuel, both with robot.drop while facing the
-  -- furnace: the input drop lands in the input slot, and the fuel drop then lands
-  -- in the fuel slot. held == 0 means the chest pull failed (wrong id/label, or
-  -- nothing in the tracked chest); held > 0 with loaded == 0 means the furnace
-  -- took no input.
+  -- Load the smeltable INPUT through the top face: climb one up and one forward to
+  -- sit directly above the furnace, drop down into it, then return to the side
+  -- stand. held == 0 means the chest pull failed (wrong id/label, or nothing in
+  -- the tracked chest); held > 0 with loaded == 0 means the furnace took no input.
   local have = math.min(amount, heldCount(job.item))
   report.held = have
   if have > 0 then
-    report.loaded = dropFront(job.item, have)
-    if report.loaded == 0 then
+    local up = C.moveUp()               -- (2,2,3)
+    local overFurnace = up and C.moveForward()  -- (2,2,2), above the furnace
+    if overFurnace then
+      report.loaded = dropInto(job.item, have, robot.dropDown)
+      C.moveBack()                      -- (2,2,3)
+    end
+    if up then C.moveDown() end         -- back to (2,1,3), the side stand
+    if not overFurnace then
+      report.reason = "could not climb above furnace"
+    elseif report.loaded == 0 then
       report.reason = "held " .. have .. " but furnace took no input"
     end
   else
     report.reason = "no ore pulled from chest"
   end
 
+  -- Load FUEL from the side stand: robot.drop puts it into the fuel slot.
   if job.fuel then
     local haveFuel = math.min(fuelWanted, heldCount(job.fuel))
     if haveFuel > 0 then
-      report.fuel = dropFront(job.fuel, haveFuel)
+      report.fuel = dropInto(job.fuel, haveFuel, robot.drop)
     end
     if report.fuel == 0 and report.loaded > 0 then
       report.reason = "no fuel loaded"
