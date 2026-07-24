@@ -1,10 +1,11 @@
 -- farm_spruce.lua
 -- Harvest the spruce tree: take a replacement sapling from the tracked chest, go
 -- to the tree base, and check whether the sapling has grown (step up one and over
--- one -- if either is blocked, it hasn't grown, so leave). If grown, mine straight
--- up until nothing more can be broken (pillaring up with reserve cobble if the
--- tree out-climbs the hover limit), mine back down, replant the sapling, wait for
--- leaf-decay drops to fall, then sweep the surrounding cells. Returns to stasis.
+-- one -- if both moves are clear it hasn't grown, so leave; if either is blocked a
+-- trunk is there, so harvest). When grown, mine straight up until nothing more can
+-- be broken (pillaring up with reserve cobble if the tree out-climbs the hover
+-- limit), mine back down, replant the sapling, wait for leaf-decay drops to fall,
+-- then sweep the surrounding cells. Returns to stasis.
 local C = require("common")
 
 local robot = C.robot
@@ -76,22 +77,18 @@ local function farm_spruce()
   end
 
   -- Growth check: from the approach cell (facing the sapling) try to step up one
-  -- and over one, without digging. If either move fails, the sapling hasn't grown
-  -- into a tree yet, so leave and come back next pass. If both succeed, drop back
-  -- to the approach cell and harvest.
-  if not moveUp() then
+  -- and over one, without digging. If BOTH moves succeed the space is clear -- the
+  -- sapling hasn't grown into a tree yet -- so leave and come back next pass. If
+  -- either move is blocked, a trunk (or leaves) are in the way: it has grown, so
+  -- return to the approach cell and harvest.
+  local up = moveUp()                    -- (3,2,12) if clear
+  local over = up and C.moveForward()    -- (4,2,12) if also clear
+  if up and over then
     C.followPath(C.SPRUCE_RETURN_PATH)
     C.face(2)
     return "stasis"
   end
-  if not C.moveForward() then
-    moveDown()
-    C.followPath(C.SPRUCE_RETURN_PATH)
-    C.face(2)
-    return "stasis"
-  end
-  C.moveBack()
-  moveDown()
+  if up then C.moveDown() end            -- back down to the approach cell (3,1,12)
 
   while robot.detect() do robot.swing() end
   C.moveForward()
