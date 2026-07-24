@@ -162,14 +162,15 @@ end
 -- materials into the BOM, ordered so an item's ingredients are always produced
 -- before the item itself. The smelt steps are the furnace's job (handled earlier
 -- in the weave), so here we take only the CRAFT steps, in that order, and hand
--- them to the crafting state in one trip. The crafting state deposits each item
--- back into the chest as it finishes, so a later step (e.g. a microchip) finds
--- the intermediate it depends on (e.g. a transistor) already in the chest.
+-- them to the crafting state in one trip. A finished item stays in the robot's
+-- inventory, where a later step (e.g. a microchip) sources the intermediate it
+-- depends on (e.g. a transistor) directly -- crafting pulls ingredients from the
+-- inventory as well as the chest.
 --
 -- Each job counts what's already in the chest toward its target (countChest), so
 -- repeat passes don't re-craft what earlier passes (or the current one) already
 -- produced. What actually gets made is fed back into the tracked resources via
--- C.onItemCrafted.
+-- C.onItemCrafted, and the inventory state deposits the finished items afterward.
 local function autocraftStep()
   local builds = C.buildsNeeded()
 
@@ -182,7 +183,6 @@ local function autocraftStep()
         name = step.name,
         amount = (step.count or 1) * builds,
         countChest = true,
-        deposit = true,
       }
     end
   end

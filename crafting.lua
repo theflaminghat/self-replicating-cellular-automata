@@ -66,11 +66,31 @@ local function stackAt(slot)
   return inv.getStackInInternalSlot(slot)
 end
 
+-- Component reads (getStackInInternalSlot) are the crafting bottleneck: the count
+-- helpers scan every slot, and they run several times per craft pass. So a pass
+-- snapshots the whole inventory ONCE and the read-only counters read the snapshot.
+-- snapAt falls back to a live read when no snapshot is active (the mutating
+-- helpers -- loadGrid, selectResultSlot -- always read live).
+local invSnap = nil
+local function refreshInvSnap()
+  invSnap = {}
+  for s = 1, (C.INVENTORY_SIZE or 32) do
+    invSnap[s] = stackAt(s)
+  end
+end
+local function clearInvSnap()
+  invSnap = nil
+end
+local function snapAt(slot)
+  if invSnap then return invSnap[slot] end
+  return stackAt(slot)
+end
+
 local function countInInventory(item)
   local total = 0
   local size = C.INVENTORY_SIZE or 32
   for s = 1, size do
-    local st = stackAt(s)
+    local st = snapAt(s)
     if stackMatches(st, item) and st.size then
       total = total + st.size
     end
@@ -166,25 +186,6 @@ end
 
 local isReserveSlot = C.isReserveSlot
 
--- Drop every non-grid, non-reserve slot holding `item` into the chest in front,
--- and invalidate the cached chest index so a later pull sees the new stock. Used
--- by recursive crafting so an intermediate an earlier job made is available in
--- the chest for the job that depends on it.
-local function depositResult(item)
-  local size = C.INVENTORY_SIZE or 32
-  local dropped = false
-  for s = 1, size do
-    if not isGridSlot(s) and not isReserveSlot(s) then
-      local st = stackAt(s)
-      if st and st.size and st.size > 0 and stackMatches(st, item) then
-        robot.select(s)
-        if robot.drop() then dropped = true end
-      end
-    end
-  end
-  if dropped then invalidateChestIndex() end
-end
-
 -- Ingredients can come from the robot's own inventory as well as the chest (the
 -- robot carries overflow tracked items and freshly crafted intermediates). Count
 -- and pull from non-grid, non-reserve internal slots.
@@ -193,7 +194,7 @@ local function inventoryCountOf(item)
   local size = C.INVENTORY_SIZE or 32
   for s = 1, size do
     if not isGridSlot(s) and not isReserveSlot(s) then
-      local st = stackAt(s)
+      local st = snapAt(s)
       if st and st.size and stackMatches(st, item) then
         total = total + st.size
       end
@@ -405,6 +406,10 @@ local function runJob(job, crafting)
     if batteryLevel() < 0.25 then
       return batches, "low battery"
     end
+    -- Snapshot the inventory once; have()/chestCanSupply()/maxMultiplier() below
+    -- all read it instead of re-scanning slot-by-slot. loadGrid/craftOnce mutate
+    -- the inventory afterward, and the next pass re-snapshots.
+    refreshInvSnap()
     if have() >= target then
       break
     end
@@ -487,14 +492,14 @@ local function crafting_state(jobs)
       batches = batches,
       reason = reason,
     }
-    -- Recursive crafting: return the finished item to the chest so a later job can
-    -- consume it. Opt-in (job.deposit) so single-item crafts that keep their
-    -- result in the robot -- e.g. the pickaxe the scheduler equips -- are left be.
-    if job.deposit and batches and batches > 0 then
-      local recipe = recipeFor(job.name)
-      depositResult(recipe and (recipe.result or job.name) or job.name)
-    end
+    -- No per-job deposit: a finished item stays in the robot's inventory, where a
+    -- later job sources it directly (loadGrid pulls ingredients from inventory as
+    -- well as the chest), and the inventory state deposits the finished items to
+    -- the tracked chest afterward. Skipping the deposit keeps the chest index
+    -- valid across jobs, so the chest is scanned once instead of once per job.
   end
+
+  clearInvSnap()
 
   -- Head back to the charger so the next state starts from stasis.
   C.gotoStasisFromChest()

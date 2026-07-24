@@ -130,14 +130,14 @@ return function(C)
     },
     ["oc:microchip2"] = {
       result = { label = "Microchip (Tier 2)" },
-      yield = 8,
+      yield = 4,
       grid = { { label = "Gold Nugget" }, { label = "Gold Nugget" }, { label = "Gold Nugget" },
                "minecraft:redstone",      { label = "Transistor" },  "minecraft:redstone",
                { label = "Gold Nugget" }, { label = "Gold Nugget" }, { label = "Gold Nugget" } },
     },
     ["oc:microchip3"] = {
       result = { label = "Microchip (Tier 3)" },
-      yield = 8,
+      yield = 2,
       grid = { { label = "Diamond Nugget" }, { label = "Diamond Nugget" }, { label = "Diamond Nugget" },
                "minecraft:redstone",         { label = "Transistor" },     "minecraft:redstone",
                { label = "Diamond Nugget" }, { label = "Diamond Nugget" }, { label = "Diamond Nugget" } },
@@ -402,7 +402,7 @@ return function(C)
 
     ["minecraft:paper"] = {
       result = { label = "Paper" },
-      yield = 1,
+      yield = 3,
       grid = { "minecraft:reeds", "minecraft:reeds", "minecraft:reeds",
                nil,               nil,               nil,
                nil,               nil,               nil },

@@ -1,13 +1,15 @@
 -- farm_spruce.lua
--- Harvest the spruce tree: take a replacement sapling from the tracked chest,
--- go to the tree base, mine straight up until nothing more can be broken
--- (pillaring up with reserve cobble if the tree out-climbs the hover limit),
--- mine back down, replant the sapling, then sweep the 8 surrounding cells for
--- fallen items. Returns to stasis afterward.
+-- Harvest the spruce tree: take a replacement sapling from the tracked chest, go
+-- to the tree base, and check whether the sapling has grown (step up one and over
+-- one -- if either is blocked, it hasn't grown, so leave). If grown, mine straight
+-- up until nothing more can be broken (pillaring up with reserve cobble if the
+-- tree out-climbs the hover limit), mine back down, replant the sapling, wait for
+-- leaf-decay drops to fall, then sweep the surrounding cells. Returns to stasis.
 local C = require("common")
 
 local robot = C.robot
 local pos = C.pos
+local os = C.os
 local moveUp = C.moveUp
 local moveDown = C.moveDown
 local batteryLevel = C.batteryLevel
@@ -73,6 +75,24 @@ local function farm_spruce()
     if not C.moveForward() then break end
   end
 
+  -- Growth check: from the approach cell (facing the sapling) try to step up one
+  -- and over one, without digging. If either move fails, the sapling hasn't grown
+  -- into a tree yet, so leave and come back next pass. If both succeed, drop back
+  -- to the approach cell and harvest.
+  if not moveUp() then
+    C.followPath(C.SPRUCE_RETURN_PATH)
+    C.face(2)
+    return "stasis"
+  end
+  if not C.moveForward() then
+    moveDown()
+    C.followPath(C.SPRUCE_RETURN_PATH)
+    C.face(2)
+    return "stasis"
+  end
+  C.moveBack()
+  moveDown()
+
   while robot.detect() do robot.swing() end
   C.moveForward()
 
@@ -94,6 +114,9 @@ local function farm_spruce()
   if C.selectMatching("sapling") then
     robot.place()
   end
+
+  -- Wait for leaf-decay drops (saplings, sticks, apples) to fall before sweeping.
+  os.sleep(30)
 
   C.sweepAround(C.SPRUCE_X, C.SPRUCE_Z, C.SPRUCE_Y)
 
