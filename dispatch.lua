@@ -118,51 +118,89 @@ local function placeOffspringRobot()
   return false
 end
 
--- Deposit every non-reserve carried item into the robot in front (the offspring),
--- handing it its BOM payload. Reserve cobble stays with the parent.
+-- The offspring reads its resources from the same fixed inventory slots the build
+-- sequence uses, so hand each stack over into the matching slot of the robot in
+-- front rather than dumping loosely.
+local BUILD_SLOTS = (function()
+  local set = {}
+  local function add(s) if type(s) == "number" then set[s] = true end end
+  for _, s in ipairs(C.COBBLE_SLOTS or {}) do add(s) end
+  for _, s in pairs(C.SLOTS or {}) do add(s) end
+  for _, s in ipairs(C.WATER_SLOTS or {}) do add(s) end
+  for _, p in ipairs(C.COMPUTER_PARTS or {}) do add(p.slot) end
+  add(C.TYPE_SLOT)
+  for _, s in ipairs(C.RESERVE_COBBLE_SLOTS or {}) do add(s) end
+  local list = {}
+  for s in pairs(set) do list[#list + 1] = s end
+  table.sort(list)
+  return list
+end)()
+
+-- Deposit each build slot's stack into the same slot of the robot in front.
 local function depositResources()
-  for s = 1, (C.INVENTORY_SIZE or 32) do
-    if not C.isReserveSlot(s) then
-      local ok, st = pcall(inv.getStackInInternalSlot, s)
-      if ok and st and st.size and st.size > 0 then
-        robot.select(s)
-        pcall(robot.drop)
-      end
+  for _, s in ipairs(BUILD_SLOTS) do
+    local ok, st = pcall(inv.getStackInInternalSlot, s)
+    if ok and st and st.size and st.size > 0 then
+      robot.select(s)
+      pcall(inv.dropIntoSlot, sides.front, s, st.size)
+    end
+  end
+end
+
+-- Retrace `nav` (recorded outbound moves) in reverse to return to stasis. Each
+-- forward becomes a back-step (facing is already restored by undoing later turns
+-- first), each turn its opposite, each ascent a descent.
+local function retrace(nav)
+  for i = #nav, 1, -1 do
+    local m = nav[i]
+    if m[1] == "fwd" then for _ = 1, m[2] do moveBack() end
+    elseif m[1] == "up" then for _ = 1, m[2] do moveDown() end
+    elseif m[1] == "down" then for _ = 1, m[2] do moveUp() end
+    elseif m[1] == "right" then turnLeft()
+    elseif m[1] == "left" then turnRight()
     end
   end
 end
 
 -- Carry the offspring out toward `dir`, bridge to its spot, place it, hand over the
--- resources, then return to stasis. Movements are the fixed per-direction routes;
--- the robot starts at stasis (4,1,3) facing the charger (-Z).
+-- resources, then retrace the exact path back to stasis. Movements are the fixed
+-- per-direction routes; the robot starts at stasis (4,1,3) facing the charger (-Z).
 local function placeOffspring(dir)
+  local nav = {}
+  local function recFwd(n) fwd(n); nav[#nav + 1] = { "fwd", n } end
+  local function recUp(n) up(n); nav[#nav + 1] = { "up", n } end
+  local function recDown(n) down(n); nav[#nav + 1] = { "down", n } end
+  local function recRight() turnRight(); nav[#nav + 1] = { "right" } end
+  local function recLeft() turnLeft(); nav[#nav + 1] = { "left" } end
+  -- Bridge n cells, then step back one to make room for the offspring. The net
+  -- advance is n-1, which is what the retrace must undo.
+  local function recBridgeBack(n)
+    bridge(n)
+    moveBack()
+    nav[#nav + 1] = { "fwd", n - 1 }
+  end
+
   if dir == "N" then
-    turnRight(); fwd(3); turnRight(); fwd(12); turnLeft(); fwd(1); turnRight()
-    bridge(17)
-    moveBack()
+    recRight(); recFwd(3); recRight(); recFwd(12); recLeft(); recFwd(1); recRight()
+    recBridgeBack(17)
   elseif dir == "E" then
-    turnLeft(); fwd(4); turnRight(); fwd(3); turnLeft()
-    bridge(24)
-    moveBack()
+    recLeft(); recFwd(4); recRight(); recFwd(3); recLeft()
+    recBridgeBack(24)
   elseif dir == "S" then
-    up(6); turnRight(); fwd(4); turnLeft(); fwd(5); down(6)
+    recUp(6); recRight(); recFwd(4); recLeft(); recFwd(5); recDown(6)
     C.placeReserveCobbleDown()   -- footing before bridging
-    bridge(31)
-    moveBack()
+    recBridgeBack(31)
   elseif dir == "W" then
-    up(6); turnRight(); fwd(4); turnLeft(); fwd(4); turnRight(); fwd(1); down(6)
+    recUp(6); recRight(); recFwd(4); recLeft(); recFwd(4); recRight(); recFwd(1); recDown(6)
     C.placeReserveCobbleDown()   -- footing before bridging
-    bridge(31)
-    moveBack()
+    recBridgeBack(31)
   else
     return  -- unknown direction; nothing to do
   end
 
   placeOffspringRobot()
   depositResources()
-
-  -- Fly home (over the terrain and the bridge) to stasis.
-  C.gotoNoBreak(C.STASIS_X, C.STASIS_Z, C.STASIS_Y)
+  retrace(nav)
   C.face(2)
 end
 
