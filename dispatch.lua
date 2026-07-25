@@ -191,11 +191,11 @@ local function placeOffspring(dir)
     recLeft(); recFwd(4); recRight(); recFwd(3); recLeft()
     recBridgeBack(24)
   elseif dir == "S" then
-    recUp(6); recRight(); recFwd(4); recLeft(); recFwd(5); recDown(6)
+    recUp(6); recRight(); recFwd(4); recLeft(); recFwd(4); recDown(6)
     C.placeReserveCobbleDown()   -- footing before bridging
     recBridgeBack(31)
   elseif dir == "W" then
-    recUp(6); recRight(); recFwd(4); recLeft(); recFwd(4); recRight(); recFwd(1); recDown(6)
+    recUp(6); recRight(); recFwd(4); recLeft(); recFwd(3); recRight(); recFwd(1); recDown(6)
     C.placeReserveCobbleDown()   -- footing before bridging
     recBridgeBack(31)
   else
