@@ -118,27 +118,27 @@ local function placeOffspringRobot()
   return false
 end
 
--- The offspring reads its resources from the same fixed inventory slots the build
--- sequence uses, so hand each stack over into the matching slot of the robot in
--- front rather than dumping loosely.
-local BUILD_SLOTS = (function()
-  local set = {}
-  local function add(s) if type(s) == "number" then set[s] = true end end
-  for _, s in ipairs(C.COBBLE_SLOTS or {}) do add(s) end
-  for _, s in pairs(C.SLOTS or {}) do add(s) end
-  for _, s in ipairs(C.WATER_SLOTS or {}) do add(s) end
-  for _, p in ipairs(C.COMPUTER_PARTS or {}) do add(p.slot) end
-  add(C.TYPE_SLOT)
-  for _, s in ipairs(C.RESERVE_COBBLE_SLOTS or {}) do add(s) end
+-- Compass name -> index (1..8): reverse of C.COMPASS. Cobblestone count in the
+-- type slot; that's how the offspring learns which direction it is.
+local COMPASS_INDEX = {}
+for i, name in pairs(C.COMPASS or {}) do COMPASS_INDEX[name] = i end
+
+-- The set of slots to hand over: every build-layout slot, plus the type marker.
+local DEPOSIT_SLOTS = (function()
+  local set = { [C.TYPE_SLOT] = true }
+  for _, e in ipairs(C.BUILD_LAYOUT or {}) do
+    if e.slot then set[e.slot] = true end
+  end
   local list = {}
   for s in pairs(set) do list[#list + 1] = s end
   table.sort(list)
   return list
 end)()
 
--- Deposit each build slot's stack into the same slot of the robot in front.
+-- Copy each laid-out slot's stack into the SAME slot of the robot in front, so
+-- the offspring's inventory ends up identical to a freshly-set-up robot's.
 local function depositResources()
-  for _, s in ipairs(BUILD_SLOTS) do
+  for _, s in ipairs(DEPOSIT_SLOTS) do
     local ok, st = pcall(inv.getStackInInternalSlot, s)
     if ok and st and st.size and st.size > 0 then
       robot.select(s)
@@ -166,6 +166,10 @@ end
 -- resources, then retrace the exact path back to stasis. Movements are the fixed
 -- per-direction routes; the robot starts at stasis (4,1,3) facing the charger (-Z).
 local function placeOffspring(dir)
+  -- Mirror the build layout in our own inventory (type marker = this direction),
+  -- so the slot-for-slot deposit lands everything where the offspring expects it.
+  C.arrangeBuildLayout(COMPASS_INDEX[dir])
+
   local nav = {}
   local function recFwd(n) fwd(n); nav[#nav + 1] = { "fwd", n } end
   local function recUp(n) up(n); nav[#nav + 1] = { "up", n } end

@@ -222,7 +222,7 @@ end
 -- part lists. Quantities are per single build+robot.
 C.BUILD_BOM = {
   blocks = {
-    ["minecraft:cobblestone"]   = 399,  -- 143 floor + 256 (4 stacks) pillaring reserve
+    ["minecraft:cobblestone"]   = 407,  -- 143 floor + 256 (4 stacks) reserve + 8 type marker
     ["minecraft:dirt"]          = 1,
     ["td:leadstone_fluxduct"]   = 5,
     ["aa:coal_generator"]       = 2,
@@ -877,6 +877,147 @@ function C.findHeldSlot(item)
     end
   end
   return nil
+end
+
+-- ---------------------------------------------------------------------------
+-- Build layout: where each carried resource lives in a freshly-set-up robot's
+-- inventory. A robot dispatching an offspring first arranges its own inventory
+-- to match this, then copies it slot-for-slot into the offspring, so the child
+-- boots with everything exactly where its build/computer code expects it.
+--
+-- Each entry: { slot, name= or label=, count }. Cobblestone is split across the
+-- floor slots (1-3, 143), the reserve slots (45-48, 256), and the type slot (44,
+-- set separately to the compass index). The 8 spare cobble in the BOM cover the
+-- type marker so it never has to steal from the floor or reserve.
+-- ---------------------------------------------------------------------------
+
+-- C.SLOTS key -> item spec + count for the machines/farm blocks.
+local SLOT_ITEM = {
+  dirt           = { name = "minecraft:dirt",           count = 1 },
+  coal_generator = { name = "aa:coal_generator",        count = 2 },
+  flux_duct      = { name = "td:leadstone_fluxduct",    count = 5 },
+  case3          = { name = "oc:case3",                 count = 1 },
+  assembler      = { name = "oc:assembler",             count = 1 },
+  hopper         = { name = "minecraft:hopper",         count = 1 },
+  furnace        = { name = "furnace",                  count = 1 },
+  sand           = { name = "minecraft:sand",           count = 8 },
+  chest          = { name = "minecraft:chest",          count = 6 },
+  stone_button   = { name = "minecraft:stone_button",   count = 1 },
+  crusher        = { name = "xu2:crusher",              count = 1 },
+  charger        = { name = "oc:charger",               count = 1 },
+  lever          = { name = "minecraft:lever",          count = 1 },
+  cactus         = { label = "Cactus",                  count = 1 },
+  sugarcane      = { name = "minecraft:reeds",          count = 7 },
+  spruce_sapling = { name = "minecraft:sapling_spruce", count = 6 },
+}
+
+C.BUILD_LAYOUT = {
+  { slot = 1, name = "minecraft:cobblestone", count = 64 },  -- floor (143 total)
+  { slot = 2, name = "minecraft:cobblestone", count = 64 },
+  { slot = 3, name = "minecraft:cobblestone", count = 15 },
+  { slot = 22, name = "minecraft:coal", count = 64 },        -- starting fuel
+}
+for key, item in pairs(SLOT_ITEM) do
+  C.BUILD_LAYOUT[#C.BUILD_LAYOUT + 1] =
+    { slot = C.SLOTS[key], name = item.name, label = item.label, count = item.count }
+end
+for _, s in ipairs(C.WATER_SLOTS) do
+  C.BUILD_LAYOUT[#C.BUILD_LAYOUT + 1] = { slot = s, name = "minecraft:bucket", count = 1 }
+end
+for _, p in ipairs(C.COMPUTER_PARTS) do
+  C.BUILD_LAYOUT[#C.BUILD_LAYOUT + 1] = { slot = p.slot, label = p.label, count = 1 }
+end
+for _, s in ipairs(C.RESERVE_COBBLE_SLOTS) do
+  C.BUILD_LAYOUT[#C.BUILD_LAYOUT + 1] = { slot = s, name = "minecraft:cobblestone", count = 64 }
+end
+
+-- Slots the type marker must never pull cobblestone out of (floor + reserve).
+local COBBLE_PROTECTED = {}
+for _, s in ipairs(C.COBBLE_SLOTS) do COBBLE_PROTECTED[s] = true end
+for _, s in ipairs(C.RESERVE_COBBLE_SLOTS) do COBBLE_PROTECTED[s] = true end
+COBBLE_PROTECTED[C.TYPE_SLOT] = true
+
+-- Consolidate up to `count` items matching `spec` into `target`, moving them from
+-- other internal slots (and trimming/evicting whatever is wrongly in `target`).
+-- Uses robot.transferTo, which moves from the selected slot into the target.
+function C.gatherInto(target, spec, count)
+  local cur = 0
+  local ok, st = pcall(inv.getStackInInternalSlot, target)
+  if ok and st and st.size and st.size > 0 then
+    if C.matchesSpec(st, spec) then
+      cur = st.size
+      if cur > count then                        -- too many: shed the excess
+        robot.select(target)
+        local free = C.freeSlot()
+        if free then robot.transferTo(free, cur - count) end
+        cur = count
+      end
+    else                                         -- wrong item: evict it
+      robot.select(target)
+      local free = C.freeSlot()
+      if free then robot.transferTo(free) end
+      cur = 0
+    end
+  end
+  if cur >= count then return end
+  for s = 1, (C.INVENTORY_SIZE or 32) do
+    if s ~= target and s ~= C.TYPE_SLOT then     -- never raid the type marker
+      local ok2, st2 = pcall(inv.getStackInInternalSlot, s)
+      if ok2 and st2 and st2.size and st2.size > 0 and C.matchesSpec(st2, spec) then
+        robot.select(s)
+        robot.transferTo(target, count - cur)
+        local ok3, st3 = pcall(inv.getStackInInternalSlot, target)
+        cur = (ok3 and st3 and st3.size) or cur
+        if cur >= count then break end
+      end
+    end
+  end
+end
+
+-- Set the type slot (44) to exactly `index` cobblestone (the offspring's compass
+-- index, 1..8). Pulls only from non-floor/non-reserve cobble (the BOM's spare 8),
+-- so the floor and pillaring reserve stay full.
+function C.setTypeSlot(index)
+  if not index or index <= 0 then return end
+  local ok, st = pcall(inv.getStackInInternalSlot, C.TYPE_SLOT)
+  local cur = 0
+  if ok and st and st.size and st.size > 0 then
+    if st.name == "minecraft:cobblestone" then
+      cur = st.size
+      if cur > index then
+        robot.select(C.TYPE_SLOT)
+        local free = C.freeSlot()
+        if free then robot.transferTo(free, cur - index) end
+        return
+      end
+    else
+      robot.select(C.TYPE_SLOT)
+      local free = C.freeSlot()
+      if free then robot.transferTo(free) end
+      cur = 0
+    end
+  end
+  for s = 1, (C.INVENTORY_SIZE or 32) do
+    if not COBBLE_PROTECTED[s] and cur < index then
+      local ok2, st2 = pcall(inv.getStackInInternalSlot, s)
+      if ok2 and st2 and st2.name == "minecraft:cobblestone" and st2.size and st2.size > 0 then
+        robot.select(s)
+        robot.transferTo(C.TYPE_SLOT, index - cur)
+        local ok3, st3 = pcall(inv.getStackInInternalSlot, C.TYPE_SLOT)
+        cur = (ok3 and st3 and st3.size) or cur
+      end
+    end
+  end
+end
+
+-- Arrange this robot's own inventory into the build layout for an offspring whose
+-- compass index is `typeIndex` (1..8). Floor/reserve/machine slots first, then the
+-- type marker from the spare cobble.
+function C.arrangeBuildLayout(typeIndex)
+  for _, e in ipairs(C.BUILD_LAYOUT) do
+    if e.slot then C.gatherInto(e.slot, e, e.count) end
+  end
+  C.setTypeSlot(typeIndex)
 end
 
 C.WATER_PLACEMENTS = {  { x = 4, z = 7 },
