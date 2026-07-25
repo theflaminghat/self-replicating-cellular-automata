@@ -916,6 +916,7 @@ C.BUILD_LAYOUT = {
   { slot = 2, name = "minecraft:cobblestone", count = 64 },
   { slot = 3, name = "minecraft:cobblestone", count = 15 },
   { slot = 22, name = "minecraft:coal", count = 64 },        -- starting fuel
+  { slot = C.TOOL_SLOT, name = "minecraft:diamond_pickaxe", count = 1 },  -- mining tool
 }
 for key, item in pairs(SLOT_ITEM) do
   C.BUILD_LAYOUT[#C.BUILD_LAYOUT + 1] =
@@ -931,31 +932,53 @@ for _, s in ipairs(C.RESERVE_COBBLE_SLOTS) do
   C.BUILD_LAYOUT[#C.BUILD_LAYOUT + 1] = { slot = s, name = "minecraft:cobblestone", count = 64 }
 end
 
+-- Every slot the layout owns (targets + type marker). Evictions must land OUTSIDE
+-- this set so we never dump a wrong item into another slot's target and fight it
+-- back out later.
+local LAYOUT_SLOTS = { [C.TYPE_SLOT] = true }
+for _, e in ipairs(C.BUILD_LAYOUT) do
+  if e.slot then LAYOUT_SLOTS[e.slot] = true end
+end
+
 -- Slots the type marker must never pull cobblestone out of (floor + reserve).
 local COBBLE_PROTECTED = {}
 for _, s in ipairs(C.COBBLE_SLOTS) do COBBLE_PROTECTED[s] = true end
 for _, s in ipairs(C.RESERVE_COBBLE_SLOTS) do COBBLE_PROTECTED[s] = true end
 COBBLE_PROTECTED[C.TYPE_SLOT] = true
 
--- Consolidate up to `count` items matching `spec` into `target`, moving them from
--- other internal slots (and trimming/evicting whatever is wrongly in `target`).
--- Uses robot.transferTo, which moves from the selected slot into the target.
+-- First empty slot that is NOT a layout target and not a reserve slot: a safe
+-- scratch spot to shove displaced items into during arranging.
+local function freeScratchSlot()
+  for s = 1, (C.INVENTORY_SIZE or 32) do
+    if not LAYOUT_SLOTS[s] and not C.isReserveSlot(s) then
+      local ok, st = pcall(inv.getStackInInternalSlot, s)
+      if ok and (not st or not st.size or st.size == 0) then return s end
+    end
+  end
+  return nil
+end
+
+-- Move whatever is in `slot` (up to `n`, or all of it) out to a scratch slot.
+local function evictFrom(slot, n)
+  local dest = freeScratchSlot()
+  if not dest then return false end
+  robot.select(slot)
+  if n then return robot.transferTo(dest, n) end
+  return robot.transferTo(dest)
+end
+
+-- Consolidate exactly `count` items matching `spec` into `target`: shed excess,
+-- evict any wrong occupant to scratch, then pull matches in from other slots.
+-- robot.transferTo moves from the selected slot into the given slot.
 function C.gatherInto(target, spec, count)
   local cur = 0
   local ok, st = pcall(inv.getStackInInternalSlot, target)
   if ok and st and st.size and st.size > 0 then
     if C.matchesSpec(st, spec) then
       cur = st.size
-      if cur > count then                        -- too many: shed the excess
-        robot.select(target)
-        local free = C.freeSlot()
-        if free then robot.transferTo(free, cur - count) end
-        cur = count
-      end
-    else                                         -- wrong item: evict it
-      robot.select(target)
-      local free = C.freeSlot()
-      if free then robot.transferTo(free) end
+      if cur > count then evictFrom(target, cur - count); cur = count end
+    else
+      evictFrom(target)                          -- wrong item: clear the slot
       cur = 0
     end
   end
@@ -984,16 +1007,9 @@ function C.setTypeSlot(index)
   if ok and st and st.size and st.size > 0 then
     if st.name == "minecraft:cobblestone" then
       cur = st.size
-      if cur > index then
-        robot.select(C.TYPE_SLOT)
-        local free = C.freeSlot()
-        if free then robot.transferTo(free, cur - index) end
-        return
-      end
+      if cur > index then evictFrom(C.TYPE_SLOT, cur - index); return end
     else
-      robot.select(C.TYPE_SLOT)
-      local free = C.freeSlot()
-      if free then robot.transferTo(free) end
+      evictFrom(C.TYPE_SLOT)
       cur = 0
     end
   end
@@ -1011,9 +1027,19 @@ function C.setTypeSlot(index)
 end
 
 -- Arrange this robot's own inventory into the build layout for an offspring whose
--- compass index is `typeIndex` (1..8). Floor/reserve/machine slots first, then the
--- type marker from the spare cobble.
+-- compass index is `typeIndex` (1..8). Two passes: first evict every layout slot
+-- that holds the wrong item out to scratch (so nothing is trapped in a target),
+-- then gather each item into its slot, then stamp the type marker from spare
+-- cobble.
 function C.arrangeBuildLayout(typeIndex)
+  for _, e in ipairs(C.BUILD_LAYOUT) do
+    if e.slot then
+      local ok, st = pcall(inv.getStackInInternalSlot, e.slot)
+      if ok and st and st.size and st.size > 0 and not C.matchesSpec(st, e) then
+        evictFrom(e.slot)
+      end
+    end
+  end
   for _, e in ipairs(C.BUILD_LAYOUT) do
     if e.slot then C.gatherInto(e.slot, e, e.count) end
   end
