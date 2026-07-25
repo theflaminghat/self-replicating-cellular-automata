@@ -939,12 +939,12 @@ for _, s in ipairs(C.RESERVE_COBBLE_SLOTS) do
   C.BUILD_LAYOUT[#C.BUILD_LAYOUT + 1] = { slot = s, name = "minecraft:cobblestone", count = 64 }
 end
 
--- Every slot the layout owns (targets + type marker). Evictions must land OUTSIDE
--- this set so we never dump a wrong item into another slot's target and fight it
--- back out later.
+-- Every slot the layout owns (targets + type marker), plus each slot's target
+-- spec so we can tell whether a slot is already correctly filled.
 local LAYOUT_SLOTS = { [C.TYPE_SLOT] = true }
+local SLOT_SPEC = {}
 for _, e in ipairs(C.BUILD_LAYOUT) do
-  if e.slot then LAYOUT_SLOTS[e.slot] = true end
+  if e.slot then LAYOUT_SLOTS[e.slot] = true; SLOT_SPEC[e.slot] = e end
 end
 
 -- Slots the type marker must never pull cobblestone out of (floor + reserve).
@@ -953,30 +953,39 @@ for _, s in ipairs(C.COBBLE_SLOTS) do COBBLE_PROTECTED[s] = true end
 for _, s in ipairs(C.RESERVE_COBBLE_SLOTS) do COBBLE_PROTECTED[s] = true end
 COBBLE_PROTECTED[C.TYPE_SLOT] = true
 
--- First empty slot that is NOT a layout target and not a reserve slot: a safe
--- scratch spot to shove displaced items into during arranging.
-local function freeScratchSlot()
+-- Somewhere to park a displaced item. Prefer a scratch (non-layout) slot, but fall
+-- back to ANY empty non-reserve slot so parking never fails while free space
+-- exists. Correctness must not depend on how many scratch slots the incoming
+-- placement happened to leave open -- that was the bug that left slots empty.
+local function parkSlot()
+  local fallback = nil
   for s = 1, (C.INVENTORY_SIZE or 32) do
-    if not LAYOUT_SLOTS[s] and not C.isReserveSlot(s) then
+    if not C.isReserveSlot(s) then
       local ok, st = pcall(inv.getStackInInternalSlot, s)
-      if ok and (not st or not st.size or st.size == 0) then return s end
+      if ok and (not st or not st.size or st.size == 0) then
+        if not LAYOUT_SLOTS[s] then return s end   -- scratch: ideal
+        fallback = fallback or s                    -- empty layout slot: last resort
+      end
     end
   end
-  return nil
+  return fallback
 end
 
--- Move whatever is in `slot` (up to `n`, or all of it) out to a scratch slot.
+-- Move whatever is in `slot` (up to `n`, or all of it) out to a park slot.
 local function evictFrom(slot, n)
-  local dest = freeScratchSlot()
+  local dest = parkSlot()
   if not dest then return false end
   robot.select(slot)
   if n then return robot.transferTo(dest, n) end
   return robot.transferTo(dest)
 end
 
--- Consolidate exactly `count` items matching `spec` into `target`: shed excess,
--- evict any wrong occupant to scratch, then pull matches in from other slots.
--- robot.transferTo moves from the selected slot into the given slot.
+-- Fill `target` with `count` items matching `spec`: clear a wrong occupant / shed
+-- excess to a park slot, then pull matches in from every slot EXCEPT ones that are
+-- a correctly-filled layout target. Skipping only correctly-filled targets means a
+-- displaced item is still found wherever it landed (even in another slot's target,
+-- e.g. after a fallback park), while a same-item target that's already right (floor
+-- vs reserve cobble) is never drained. robot.transferTo moves selected -> target.
 function C.gatherInto(target, spec, count)
   local cur = 0
   local ok, st = pcall(inv.getStackInInternalSlot, target)
@@ -991,17 +1000,18 @@ function C.gatherInto(target, spec, count)
   end
   if cur >= count then return end
   for s = 1, (C.INVENTORY_SIZE or 32) do
-    -- Pull ONLY from scratch (non-layout) slots. Raiding another layout slot would
-    -- drain a same-item target that was already filled -- e.g. filling the reserve
-    -- cobble slots would empty the floor cobble slots, since both hold cobblestone.
-    if not LAYOUT_SLOTS[s] then
+    if s ~= target then
       local ok2, st2 = pcall(inv.getStackInInternalSlot, s)
       if ok2 and st2 and st2.size and st2.size > 0 and C.matchesSpec(st2, spec) then
-        robot.select(s)
-        robot.transferTo(target, count - cur)
-        local ok3, st3 = pcall(inv.getStackInInternalSlot, target)
-        cur = (ok3 and st3 and st3.size) or cur
-        if cur >= count then break end
+        -- Don't raid a layout slot that already holds its own correct item.
+        local own = SLOT_SPEC[s]
+        if not (own and C.matchesSpec(st2, own)) then
+          robot.select(s)
+          robot.transferTo(target, count - cur)
+          local ok3, st3 = pcall(inv.getStackInInternalSlot, target)
+          cur = (ok3 and st3 and st3.size) or cur
+          if cur >= count then break end
+        end
       end
     end
   end
@@ -1039,9 +1049,10 @@ end
 -- Arrange this robot's own inventory into the build layout for an offspring whose
 -- compass index is `typeIndex` (1..8).
 --   Pass 1 (normalize): push every layout slot down to AT MOST its target of the
---     right item -- evict wrong items and shed any excess out to scratch. After
---     this all spare/loose/wrong items sit in scratch, and no target is overfull.
---   Pass 2 (fill): top each slot up to its target, pulling only from scratch.
+--     right item -- evict wrong items and shed any excess to a park slot -- so no
+--     target is overfull before filling begins.
+--   Pass 2 (fill): top each slot up to its target, pulling matches from anywhere
+--     except a correctly-filled layout target.
 --   Pass 3: stamp the type marker from spare cobble.
 -- Shedding excess up front matters: without it, a slot filled early (e.g. floor 2)
 -- can't borrow from a later slot's overflow (e.g. floor 3's excess), which is how
