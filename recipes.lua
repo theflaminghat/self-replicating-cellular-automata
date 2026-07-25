@@ -41,7 +41,7 @@ return function(C)
     ["minecraft:hopper"] = {
       yield = 1,
       grid = { "minecraft:iron_ingot", nil,               "minecraft:iron_ingot",
-               "minecraft:iron_ingot", "minecraft:chest", "minecraft:iron_ingot",
+               "minecraft:iron_ingot", { label = "Spruce Chest" }, "minecraft:iron_ingot",
                nil,                    "minecraft:iron_ingot", nil },
     },
     ["minecraft:stone_button"] = {

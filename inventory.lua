@@ -11,7 +11,7 @@ local inv = C.inv
 local sides = C.sides
 local pos = C.pos
 
-local INVENTORY_SIZE = 48
+local INVENTORY_SIZE = C.INVENTORY_SIZE or 64
 
 -- Chest wall geometry. After C.gotoChestFromStasis() the robot stands at the
 -- tracked-chest access cell (1,1,0) facing -X, looking at the chest at (0,1,0).
@@ -114,25 +114,12 @@ local function depositTrackedChest()
   end
 end
 
--- Is this stack one of the tracked resources? Tracked items that overflow the
--- tracked chest (it's full, or the item is already at its target) are KEPT in the
--- robot's own inventory rather than dumped into the overflow chests, so they stay
--- available -- the crafting state pulls ingredients from inventory as well as the
--- chest.
-local function isTracked(stack)
-  for _, r in ipairs(C.TRACKED_RESOURCES) do
-    if C.matchesSpec(stack, C.specFor(r.name)) then
-      return true
-    end
-  end
-  return false
-end
-
-local function hasUntrackedItems()
+-- Any non-reserve slot still holding items? (Reserve cobble stays for pillaring.)
+local function hasStorableItems()
   for i = 1, INVENTORY_SIZE do
     if not RESERVE[i] then
       local stack = inv.getStackInInternalSlot(i)
-      if stack and stack.size and stack.size > 0 and not isTracked(stack) then
+      if stack and stack.size and stack.size > 0 then
         return true
       end
     end
@@ -140,13 +127,16 @@ local function hasUntrackedItems()
   return false
 end
 
--- Dump remaining internal slots into the chest in front, EXCEPT the reserve cobble
--- slots (kept for pillaring) and tracked items (kept in inventory as overflow).
+-- Dump every non-reserve slot into the chest in front. The tracked chest already
+-- holds each tracked resource up to its target; everything left -- excess tracked
+-- resources AND untracked items -- flows into the overflow chests here. Whatever
+-- doesn't fit (chest full) simply stays put, so the robot's inventory is only used
+-- once the chests can no longer hold the resource.
 local function dumpAllHere()
   for i = 1, INVENTORY_SIZE do
     if not RESERVE[i] then
       local stack = inv.getStackInInternalSlot(i)
-      if stack and stack.size and stack.size > 0 and not isTracked(stack) then
+      if stack and stack.size and stack.size > 0 then
         robot.select(i)
         robot.drop()
       end
@@ -154,18 +144,76 @@ local function dumpAllHere()
   end
 end
 
--- Deposit untracked leftovers into the other chests, one access cell at a time,
--- until no untracked items remain. Tracked overflow stays with the robot. Skips
--- the tracked chest cell.
+-- Deposit leftovers into the overflow chests, one access cell at a time, until
+-- nothing storable remains (or the chests fill up). Skips the tracked chest cell.
 local function depositOverflow()
   for _, z in ipairs(CHEST_ZS) do
     for level = 1, CHEST_LEVELS do
-      if not hasUntrackedItems() then return end
+      if not hasStorableItems() then return end
       local isTrackedCell =
         (z == C.TRACKED_CHEST.z and level == C.TRACKED_CHEST.y)
       if not isTrackedCell then
         gotoChestCell(z, level)
         dumpAllHere()
+      end
+    end
+  end
+end
+
+-- ---------------------------------------------------------------------------
+-- Reserve cobble top-up.
+-- ---------------------------------------------------------------------------
+
+local COBBLE = C.COBBLE_NAME
+
+-- Is the chest in front completely empty (no items in any slot)? A missing chest
+-- (no inventory in front) is NOT treated as empty -- only a real, drained chest.
+local function frontChestEmpty()
+  local size = inv.getInventorySize(sides.front)
+  if not size then return false end
+  for cs = 1, size do
+    local st = inv.getStackInSlot(sides.front, cs)
+    if st and st.size and st.size > 0 then return false end
+  end
+  return true
+end
+
+-- Pull cobblestone from the chest in front into the reserve slots, up to full.
+local function suckCobbleFromFront()
+  local size = inv.getInventorySize(sides.front)
+  if not size then return end
+  for _, rs in ipairs(C.RESERVE_COBBLE_SLOTS or {}) do
+    local st = inv.getStackInInternalSlot(rs)
+    local have = (st and st.name == COBBLE and st.size) or 0
+    for cs = 1, size do
+      if have >= 64 then break end
+      local cst = inv.getStackInSlot(sides.front, cs)
+      if cst and cst.name == COBBLE and cst.size and cst.size > 0 then
+        robot.select(rs)
+        inv.suckFromSlot(sides.front, cs, 64 - have)
+        local st2 = inv.getStackInInternalSlot(rs)
+        have = (st2 and st2.size) or have
+      end
+    end
+  end
+end
+
+-- Top the pillaring reserve back up from the overflow chests (the carried-cobble
+-- top-up runs first, in inventory(), before that cobble is dumped). Only if the
+-- reserve isn't already full, and STOP as soon as an empty chest is reached (no
+-- point walking a wall of drained chests).
+local function refillReserveFromOverflow()
+  if C.reserveCobbleDeficit() <= 0 then return end
+
+  for _, z in ipairs(CHEST_ZS) do
+    for level = 1, CHEST_LEVELS do
+      local isTrackedCell =
+        (z == C.TRACKED_CHEST.z and level == C.TRACKED_CHEST.y)
+      if not isTrackedCell then
+        gotoChestCell(z, level)
+        if frontChestEmpty() then return end     -- hit an empty chest: stop
+        suckCobbleFromFront()
+        if C.reserveCobbleDeficit() <= 0 then return end   -- reserve full: done
       end
     end
   end
@@ -180,7 +228,9 @@ local function inventory()
   C.gotoChestFromStasis()
 
   depositTrackedChest()
-  depositOverflow()
+  C.topUpReserveFromInventory()   -- reserve first, from cobble still carried
+  depositOverflow()               -- then everything else flows to overflow chests
+  refillReserveFromOverflow()     -- top up any remaining reserve from those chests
 
   -- Return to the tracked-chest access cell, then back to the charger.
   gotoChestCell(C.TRACKED_CHEST.z, C.TRACKED_CHEST.y)

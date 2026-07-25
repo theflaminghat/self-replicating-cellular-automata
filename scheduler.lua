@@ -66,10 +66,17 @@ local WEAVE  -- forward declaration; filled in after the step functions exist.
 local function chargeCycle()
   local next = "returning"
   local guard = 0
+  local fueled = false
   while guard < 8 do
     guard = guard + 1
     local handler = states[next]
     if not handler then break end
+    -- Once home and about to charge, top up the generators that power the charger
+    -- first (they must be fed exactly when the battery is low). Fuel once per cycle.
+    if next == "stasis" and not fueled then
+      states.fill_generators()
+      fueled = true
+    end
     next = handler()
     if next ~= "returning" and next ~= "stasis" then
       break
@@ -104,6 +111,10 @@ local function furnaceAddStep()
   for _, s in ipairs(smeltables) do items[#items + 1] = s.input end
   local counts = C.readChestCounts(items)
 
+  -- Coal on hand for smelting. Each job burns ceil(amount/8) coal; jobs that can't
+  -- be fueled are skipped this pass and retried later, once more coal is available.
+  local coalLeft = C.readChestCounts({ SMELT_FUEL })[SMELT_FUEL] or 0
+
   local jobs = {}
   for _, s in ipairs(smeltables) do
     -- Cobblestone is the primary mined block and floods the chest; smelting it to
@@ -114,20 +125,25 @@ local function furnaceAddStep()
       -- successive passes rather than all at once.
       local amount = math.min(smeltAmount(counts[s.input] or 0), 64)
       if amount > 0 then
-        jobs[#jobs + 1] = {
-          -- A spec (id or { label = ... }) so furnace_add pulls the ore from the
-          -- chest by whichever key actually identifies it.
-          item = C.specFor(s.input),
-          fuel = SMELT_FUEL,
-          amount = amount,
-          fuelAmount = math.ceil(amount / 8),
-        }
+        local fuelNeed = math.ceil(amount / 8)
+        if coalLeft >= fuelNeed then
+          jobs[#jobs + 1] = {
+            -- A spec (id or { label = ... }) so furnace_add pulls the ore from the
+            -- chest by whichever key actually identifies it.
+            item = C.specFor(s.input),
+            fuel = SMELT_FUEL,
+            amount = amount,
+            fuelAmount = fuelNeed,
+          }
+          coalLeft = coalLeft - fuelNeed
+        end
+        -- else: not enough coal for this ore right now -- skip, retry next pass.
       end
     end
   end
 
   if #jobs == 0 then
-    return  -- nothing worth smelting this pass
+    return  -- nothing worth smelting (or no coal to smelt it) this pass
   end
 
   states.furnace_add(jobs)
@@ -314,8 +330,22 @@ end
 local function dispatchStep()
   if not pendingDispatch then return end
   if C.batteryLevel() < 0.25 then return end  -- charge first; retry next pass
-  -- Direction for the offspring just collected (its index is builtCount).
+
+  -- Direction for the offspring just collected. buildStep won't assemble another
+  -- while a dispatch is pending, so builtCount stays put and this stays correct.
   local dir = (C.offspringPlan or {})[builtCount]
+  if not dir then
+    -- Plan exhausted (nothing to place). Clear the flag so we don't spin on it.
+    pendingDispatch = false
+    saveReplication()
+    return
+  end
+
+  -- Load the offspring's build materials out of the tracked chest before sending
+  -- it. Idempotent: items already carried count toward the target, so a retried
+  -- dispatch (after a low-battery bail) doesn't over-draw.
+  C.takeBuildMaterialsFromChest()
+
   -- Only clear the pending flag if the dispatch actually finished (not a low
   -- battery bail), so an interrupted dispatch is retried.
   if states.dispatch(dir) ~= "returning" then
@@ -329,6 +359,10 @@ end
 local function buildStep()
   if C.batteryLevel() < 0.25 then return end
   if assembling then return end
+  -- Don't start the next offspring until the current one is dispatched. This keeps
+  -- builtCount stable while a dispatch is pending, so dispatchStep's direction
+  -- lookup can't be knocked out from under it by a fresh collection.
+  if pendingDispatch then return end
   if builtCount >= C.buildsNeeded() then return end
   if not partsReady() then return end
   states.build_robot()
@@ -401,14 +435,15 @@ WEAVE = {
   "inventory",
   takeRobotStep,
   dispatchStep,
+  "inventory",     -- clean up dispatch leftovers and refill the reserve used bridging
   buildStep,
 }
 
 local function scheduler()
   -- Initialization: determine this robot's type from slot 44, expand the build
-  -- BOM into base materials, and set the tracked resources to those base
-  -- materials times the number of builds this robot needs to make (one per
-  -- offspring it will send).
+  -- BOM into base materials, and set the tracked resources to those base materials
+  -- times the number of builds this robot needs to make -- so the tracked chest
+  -- holds everything replication requires (plus the spruce-sapling/coal floors).
   C.robotType = C.detectRobotType()
   C.offspringPlan = C.offspringDirections(C.robotType)
   C.baseMaterials = C.baseMaterialsForBuild()

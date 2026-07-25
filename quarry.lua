@@ -146,6 +146,18 @@ local function sweepQuarryLayer(patch, resumeXi, resumeZi)
       saveProgress()
       return false
     end
+    -- Reserve cobble is only spent on the bottom layer (patching floor holes), so
+    -- only bother topping it up / checking it there. Keep it filled from freshly
+    -- mined cobble; if it drops near empty the robot can't patch or pillar back out,
+    -- so bail (recovered by the inventory step's reserve refill next cycle).
+    if patch then
+      if C.reserveCobbleDeficit() > 0 then C.topUpReserveFromInventory() end
+      if C.reserveCobbleCount() <= C.RESERVE_BAILOUT then
+        progress.xi, progress.zi = xi, nil
+        saveProgress()
+        return "reserve_out"
+      end
+    end
     local zFrom, zTo, zStep = zRangeFor(xi)
     if resumeZi and xi == startXi then
       zFrom = resumeZi
@@ -303,6 +315,13 @@ local function quarry()
         climbToSurface()
         C.protectPillar = false
         return "craft_pickaxe"
+      elseif sweepResult == "reserve_out" then
+        -- Out of cobble to pillar with: go home and let the weave refill the
+        -- reserve (inventory step) before the next quarry pass resumes here.
+        progress.bandBottom = bottomY
+        progress.layer = layer
+        saveProgress()
+        return bailOut()
       elseif not sweepResult then
         progress.bandBottom = bottomY
         progress.layer = layer

@@ -99,10 +99,8 @@ local function fuelFront(count)
 end
 
 local function fill_generators()
-  if batteryLevel() < 0.25 then
-    return "returning"
-  end
-
+  -- No low-battery bail: this runs as part of the charge cycle, so it must fuel the
+  -- generators precisely WHEN the battery is low (they're what power the charger).
   C.lastGeneratorError = nil
   C.lastGeneratorReport = { fueled = { 0, 0 } }
 

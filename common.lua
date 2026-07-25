@@ -21,7 +21,8 @@ C.BUILD_Z = 16
 C.COBBLE_SLOTS = { 1, 2, 3 }
 C.RESERVE_COBBLE_COUNT = 4
 C.HIGHEST_NAMED_SLOT = 21
-C.RESERVE_COBBLE_SLOTS = { 45, 46, 47, 48 }
+C.INVENTORY_SIZE = 64   -- 4 Inventory Upgrades x 16; refreshReserveSlots corrects
+C.RESERVE_COBBLE_SLOTS = { 61, 62, 63, 64 }   -- top 4 slots of a 64-slot robot
 
 -- Tool management. robot.durability() returns the fraction of durability left,
 -- or nil when there's no tool (broken/absent). A very low value means it's about
@@ -45,7 +46,7 @@ function C.refreshReserveSlots()
       size = n
     end
   end
-  C.INVENTORY_SIZE = size
+  C.INVENTORY_SIZE = size or 64   -- fall back to the expected 64-slot layout
   if not size then
     return C.RESERVE_COBBLE_SLOTS
   end
@@ -111,7 +112,7 @@ C.ROBOT_PARTS = {
   { label = "Memory (Tier 3)" },
   { label = "Hard Disk Drive (Tier 2) (2MB)" },
   { label = "EEPROM" },
-  { label = "Inventory Upgrade", count = 3 },
+  { label = "Inventory Upgrade", count = 4 },  -- 4 x 16 = 64 internal slots
   { label = "Redstone Card (Tier 1)" },
 }
 
@@ -222,7 +223,7 @@ end
 -- part lists. Quantities are per single build+robot.
 C.BUILD_BOM = {
   blocks = {
-    ["minecraft:cobblestone"]   = 407,  -- 143 floor + 256 (4 stacks) reserve + 8 type marker
+    ["minecraft:cobblestone"]   = 151,  -- 143 floor + 8 type marker (offspring mines its own reserve)
     ["minecraft:dirt"]          = 1,
     ["td:leadstone_fluxduct"]   = 5,
     ["aa:coal_generator"]       = 2,
@@ -241,7 +242,7 @@ C.BUILD_BOM = {
     ["minecraft:diamond_pickaxe"] = 1,  -- the offspring's mining tool
     ["Cactus"]                  = 1,
     ["minecraft:reeds"]         = 7,  -- sugarcane
-    ["minecraft:sapling_spruce"] = 6,  -- 1 planted + 5 spare
+    ["Spruce Sapling"]          = 6,  -- 1 planted + 5 spare (matched by label)
   },
   -- One offspring robot: the ROBOT_PARTS list (with counts) assembled in the
   -- assembler, plus the COMPUTER_PARTS dropped into the case during the build.
@@ -431,17 +432,39 @@ function C.scaleTrackedResources()
     put(entry.name, (entry.count or 1) * builds)
   end
 
-  -- Smeltable inputs (ores, sand, cactus, raw circuit boards, ...) and their
-  -- outputs must also land in the tracked chest: the furnace sequence pulls the
-  -- inputs from there, and the outputs feed later crafting. Some of these are
-  -- intermediates the base-material expansion passes straight through, so they
-  -- would otherwise be untracked and get dumped into the overflow chests.
-  -- Anything not already tracked gets a default target so inventory keeps it.
-  local SMELT_DEFAULT_TARGET = 256
+  -- Smeltable inputs (ores, sand, cactus, raw circuit board, ...) mostly come out
+  -- of the base-material expansion already tracked. Their 1:1 smelt OUTPUTS (ingots,
+  -- PCB, glass, ...) do not, and would otherwise land in overflow where crafting
+  -- can't find them -- so keep each output available at the same amount its input
+  -- is tracked for (all of that input becomes the output), rather than a flat,
+  -- inflated default. Cobblestone is never auto-smelted (furnaceAddStep skips it),
+  -- so Stone is not reserved at all.
+  local SMELT_UNTRACKED_INPUT = 64
   for _, s in ipairs(C.smeltables()) do
-    if not index[s.input] then put(s.input, SMELT_DEFAULT_TARGET) end
-    if not index[s.output] then put(s.output, SMELT_DEFAULT_TARGET) end
+    if s.input ~= C.COBBLE_NAME then
+      local inEntry = index[s.input]
+      local amount = (inEntry and inEntry.target) or SMELT_UNTRACKED_INPUT
+      if not index[s.input] then put(s.input, amount) end
+      if not index[s.output] then put(s.output, amount) end
+    end
   end
+
+  -- Baseline floors: always keep at least a stack of spruce saplings (replanting
+  -- stock the farm depends on) and coal (fuel), even when the per-build totals are
+  -- lower. Never lowers a higher replication target.
+  local function ensureAtLeast(name, minTarget)
+    local e = index[name]
+    if e then
+      e.target = math.max(e.target or 0, minTarget)
+      e.min = math.max(e.min or 0, minTarget)
+    else
+      e = { name = name, min = minTarget, target = minTarget }
+      index[name] = e
+      tracked[#tracked + 1] = e
+    end
+  end
+  ensureAtLeast("Spruce Sapling", 64)
+  ensureAtLeast("minecraft:coal", 64)
 
   C.TRACKED_RESOURCES = tracked
   return tracked
@@ -739,13 +762,12 @@ C.STASIS_X = 4
 C.STASIS_Y = 1
 C.STASIS_Z = 3
 
-C.TRACKED_RESOURCES = {  { name = "minecraft:cobblestone", min = 128, target = 1024 },
-  { name = "minecraft:iron_ore",    min = 64,  target = 512 },
-  { name = "minecraft:coal",        min = 64,  target = 512 },
-  { name = "minecraft:gold_ore",    min = 32,  target = 256 },
-  { name = "minecraft:redstone",    min = 64,  target = 512 },
-  { name = "minecraft:iron_ingot",  min = 64,  target = 512 },
-  { name = "minecraft:gold_ingot",  min = 32,  target = 256 },
+-- Tracked = the items KEPT in the tracked chest (up to target); everything else
+-- flows to the overflow chests. Only spruce saplings (replanting stock) and coal
+-- (fuel) are kept; the build materials ride through the overflow chests.
+C.TRACKED_RESOURCES = {
+  { name = "Spruce Sapling",  min = 64, target = 64 },
+  { name = "minecraft:coal",  min = 64, target = 64 },
 }
 
 require("recipes")(C)
@@ -784,6 +806,9 @@ function C.buildLabelSet()
 end
 
 C.buildLabelSet()
+-- Spruce Sapling has no recipe (it's farmed), so it isn't picked up from the
+-- recipes, but it must be matched by display label -- its item id didn't match.
+C.LABELS["Spruce Sapling"] = true
 
 -- Turn a name (item id or label string) into a match spec.
 function C.specFor(name)
@@ -935,9 +960,8 @@ for _, p in ipairs(C.COMPUTER_PARTS) do
   local label = (p.label == "EEPROM") and "EEPROM (Lua BIOS)" or p.label
   C.BUILD_LAYOUT[#C.BUILD_LAYOUT + 1] = { slot = p.slot, label = label, count = 1 }
 end
-for _, s in ipairs(C.RESERVE_COBBLE_SLOTS) do
-  C.BUILD_LAYOUT[#C.BUILD_LAYOUT + 1] = { slot = s, name = "minecraft:cobblestone", count = 64 }
-end
+-- No reserve cobble in the layout: the offspring mines its own pillaring reserve
+-- once it starts quarrying. The parent's reserve slots (45-48) stay its own.
 
 -- Every slot the layout owns (targets + type marker), plus each slot's target
 -- spec so we can tell whether a slot is already correctly filled.
@@ -1000,7 +1024,9 @@ function C.gatherInto(target, spec, count)
   end
   if cur >= count then return end
   for s = 1, (C.INVENTORY_SIZE or 32) do
-    if s ~= target then
+    -- Never source from the target itself or the reserve slots (the robot's own
+    -- pillaring cobble, which is not part of any offspring's payload).
+    if s ~= target and not C.isReserveSlot(s) then
       local ok2, st2 = pcall(inv.getStackInInternalSlot, s)
       if ok2 and st2 and st2.size and st2.size > 0 and C.matchesSpec(st2, spec) then
         -- Don't raid a layout slot that already holds its own correct item.
@@ -1413,6 +1439,101 @@ function C.placeReserveCobbleDown()
     return robot.placeDown()
   end
   return false
+end
+
+C.COBBLE_NAME = "minecraft:cobblestone"
+C.RESERVE_STACK = 64   -- a full cobblestone stack per reserve slot
+-- Below this many cobble in reserve the quarry bails out (enough left to pillar
+-- back to the surface rather than getting stranded at the bottom).
+C.RESERVE_BAILOUT = 32
+
+-- Total cobblestone currently sitting in the reserve slots.
+function C.reserveCobbleCount()
+  local total = 0
+  for _, s in ipairs(C.RESERVE_COBBLE_SLOTS or {}) do
+    local st = inv.getStackInInternalSlot(s)
+    if st and st.name == C.COBBLE_NAME and st.size then total = total + st.size end
+  end
+  return total
+end
+
+-- How many cobble the reserve is short of completely full.
+function C.reserveCobbleDeficit()
+  return (C.RESERVE_COBBLE_COUNT * C.RESERVE_STACK) - C.reserveCobbleCount()
+end
+
+-- Move cobblestone from the robot's own non-reserve slots into the reserve slots
+-- until they are full (64 each) or no loose cobble remains. Returns the reserve
+-- count afterward. Used to keep the pillaring reserve topped up from freshly mined
+-- cobble without visiting a chest.
+function C.topUpReserveFromInventory()
+  for _, rs in ipairs(C.RESERVE_COBBLE_SLOTS or {}) do
+    local st = inv.getStackInInternalSlot(rs)
+    local have = (st and st.name == C.COBBLE_NAME and st.size) or 0
+    if have < C.RESERVE_STACK then
+      for s = 1, (C.INVENTORY_SIZE or 32) do
+        if s ~= rs and not C.isReserveSlot(s) then
+          local cs = inv.getStackInInternalSlot(s)
+          if cs and cs.name == C.COBBLE_NAME and cs.size and cs.size > 0 then
+            robot.select(s)
+            robot.transferTo(rs, C.RESERVE_STACK - have)
+            local st2 = inv.getStackInInternalSlot(rs)
+            have = (st2 and st2.size) or have
+            if have >= C.RESERVE_STACK then break end
+          end
+        end
+      end
+    end
+  end
+  return C.reserveCobbleCount()
+end
+
+-- The build layout collapsed to per-item totals (cobblestone spans several slots),
+-- as a list of { spec, count }.
+function C.buildMaterialTotals()
+  local totals, index = {}, {}
+  local function bump(spec, count, key)
+    if not key or count <= 0 then return end
+    if index[key] then
+      totals[index[key]].count = totals[index[key]].count + count
+    else
+      totals[#totals + 1] = { spec = spec, count = count }
+      index[key] = #totals
+    end
+  end
+  for _, e in ipairs(C.BUILD_LAYOUT or {}) do
+    bump({ name = e.name, label = e.label }, e.count, e.label or e.name)
+  end
+  -- The type marker is up to 8 cobblestone stamped into slot 44 (set separately by
+  -- setTypeSlot, not a layout entry), so gather that spare on top of the floor.
+  bump({ name = C.COBBLE_NAME }, 8, C.COBBLE_NAME)
+  return totals
+end
+
+-- Before dispatching an offspring, pull the materials it needs (one build's worth,
+-- per the layout) out of the tracked chest and into the robot's inventory, up to
+-- each item's target. Items the robot already carries count toward the target, so
+-- a retried dispatch doesn't over-draw. Starts and ends at stasis.
+function C.takeBuildMaterialsFromChest()
+  C.gotoChestFromStasis()
+  local size = inv.getInventorySize(sides.front)
+  if size then
+    for _, t in ipairs(C.buildMaterialTotals()) do
+      for cs = 1, size do
+        local held = C.heldCount(t.spec)
+        if held >= t.count then break end
+        local st = inv.getStackInSlot(sides.front, cs)
+        if st and C.matchesSpec(st, t.spec) and st.size and st.size > 0 then
+          local dest = C.freeSlot()
+          if dest then
+            robot.select(dest)
+            inv.suckFromSlot(sides.front, cs, math.min(t.count - held, st.size))
+          end
+        end
+      end
+    end
+  end
+  C.gotoStasisFromChest()
 end
 
 -- Scripted furnace-area movement. These are literal step sequences (not
