@@ -901,14 +901,14 @@ local SLOT_ITEM = {
   hopper         = { name = "minecraft:hopper",         count = 1 },
   furnace        = { label = "Furnace",                 count = 1 },
   sand           = { name = "minecraft:sand",           count = 8 },
-  chest          = { name = "minecraft:chest",          count = 6 },
+  chest          = { label = "Spruce Chest",            count = 6 },
   stone_button   = { name = "minecraft:stone_button",   count = 1 },
   crusher        = { label = "Crusher",                 count = 1 },
   charger        = { label = "Charger",                 count = 1 },
   lever          = { name = "minecraft:lever",          count = 1 },
   cactus         = { label = "Cactus",                  count = 1 },
   sugarcane      = { name = "minecraft:reeds",          count = 7 },
-  spruce_sapling = { name = "minecraft:sapling_spruce", count = 6 },
+  spruce_sapling = { label = "Spruce Sapling",          count = 6 },
 }
 
 C.BUILD_LAYOUT = {
@@ -922,8 +922,11 @@ for key, item in pairs(SLOT_ITEM) do
   C.BUILD_LAYOUT[#C.BUILD_LAYOUT + 1] =
     { slot = C.SLOTS[key], name = item.name, label = item.label, count = item.count }
 end
+-- Filled water buckets, not empty ones: the offspring places water from these
+-- during its build (an empty bucket can't place water). The parent crafts empty
+-- buckets (BOM) and fills them before dispatch.
 for _, s in ipairs(C.WATER_SLOTS) do
-  C.BUILD_LAYOUT[#C.BUILD_LAYOUT + 1] = { slot = s, name = "minecraft:bucket", count = 1 }
+  C.BUILD_LAYOUT[#C.BUILD_LAYOUT + 1] = { slot = s, label = "Water Bucket", count = 1 }
 end
 for _, p in ipairs(C.COMPUTER_PARTS) do
   C.BUILD_LAYOUT[#C.BUILD_LAYOUT + 1] = { slot = p.slot, label = p.label, count = 1 }
@@ -984,7 +987,10 @@ function C.gatherInto(target, spec, count)
   end
   if cur >= count then return end
   for s = 1, (C.INVENTORY_SIZE or 32) do
-    if s ~= target and s ~= C.TYPE_SLOT then     -- never raid the type marker
+    -- Pull ONLY from scratch (non-layout) slots. Raiding another layout slot would
+    -- drain a same-item target that was already filled -- e.g. filling the reserve
+    -- cobble slots would empty the floor cobble slots, since both hold cobblestone.
+    if not LAYOUT_SLOTS[s] then
       local ok2, st2 = pcall(inv.getStackInInternalSlot, s)
       if ok2 and st2 and st2.size and st2.size > 0 and C.matchesSpec(st2, spec) then
         robot.select(s)
@@ -1027,16 +1033,25 @@ function C.setTypeSlot(index)
 end
 
 -- Arrange this robot's own inventory into the build layout for an offspring whose
--- compass index is `typeIndex` (1..8). Two passes: first evict every layout slot
--- that holds the wrong item out to scratch (so nothing is trapped in a target),
--- then gather each item into its slot, then stamp the type marker from spare
--- cobble.
+-- compass index is `typeIndex` (1..8).
+--   Pass 1 (normalize): push every layout slot down to AT MOST its target of the
+--     right item -- evict wrong items and shed any excess out to scratch. After
+--     this all spare/loose/wrong items sit in scratch, and no target is overfull.
+--   Pass 2 (fill): top each slot up to its target, pulling only from scratch.
+--   Pass 3: stamp the type marker from spare cobble.
+-- Shedding excess up front matters: without it, a slot filled early (e.g. floor 2)
+-- can't borrow from a later slot's overflow (e.g. floor 3's excess), which is how
+-- the floor ended up 0/49/15.
 function C.arrangeBuildLayout(typeIndex)
   for _, e in ipairs(C.BUILD_LAYOUT) do
     if e.slot then
       local ok, st = pcall(inv.getStackInInternalSlot, e.slot)
-      if ok and st and st.size and st.size > 0 and not C.matchesSpec(st, e) then
-        evictFrom(e.slot)
+      if ok and st and st.size and st.size > 0 then
+        if not C.matchesSpec(st, e) then
+          evictFrom(e.slot)                       -- wrong item
+        elseif st.size > e.count then
+          evictFrom(e.slot, st.size - e.count)    -- shed excess
+        end
       end
     end
   end
