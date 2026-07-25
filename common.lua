@@ -234,7 +234,7 @@ C.BUILD_BOM = {
     ["minecraft:stone_button"]  = 1,
     ["xu2:crusher"]             = 1,
     ["minecraft:lever"]         = 1,
-    ["minecraft:chest"]         = 6,
+    ["minecraft:chest"]         = 36,  -- 6 chest stacks x 6 high (CHEST_PLACEMENTS)
     ["minecraft:sand"]          = 8,
     ["minecraft:bucket"]        = 2,
     ["minecraft:coal"]          = 64,  -- starting generator/furnace fuel
@@ -901,7 +901,7 @@ local SLOT_ITEM = {
   hopper         = { name = "minecraft:hopper",         count = 1 },
   furnace        = { label = "Furnace",                 count = 1 },
   sand           = { name = "minecraft:sand",           count = 8 },
-  chest          = { label = "Spruce Chest",            count = 6 },
+  chest          = { label = "Spruce Chest",            count = 36 },  -- 6 stacks x 6 high
   stone_button   = { name = "minecraft:stone_button",   count = 1 },
   crusher        = { label = "Crusher",                 count = 1 },
   charger        = { label = "Charger",                 count = 1 },
@@ -929,7 +929,11 @@ for _, s in ipairs(C.WATER_SLOTS) do
   C.BUILD_LAYOUT[#C.BUILD_LAYOUT + 1] = { slot = s, label = "Water Bucket", count = 1 }
 end
 for _, p in ipairs(C.COMPUTER_PARTS) do
-  C.BUILD_LAYOUT[#C.BUILD_LAYOUT + 1] = { slot = p.slot, label = p.label, count = 1 }
+  -- The EEPROM the robot carries for the offspring is the Lua BIOS it pulled out of
+  -- the computer during the copy sequence (before dropping the fresh blank in), so
+  -- sorting/deposit must match its post-insertion label, not the blank "EEPROM".
+  local label = (p.label == "EEPROM") and "EEPROM (Lua BIOS)" or p.label
+  C.BUILD_LAYOUT[#C.BUILD_LAYOUT + 1] = { slot = p.slot, label = label, count = 1 }
 end
 for _, s in ipairs(C.RESERVE_COBBLE_SLOTS) do
   C.BUILD_LAYOUT[#C.BUILD_LAYOUT + 1] = { slot = s, name = "minecraft:cobblestone", count = 64 }
