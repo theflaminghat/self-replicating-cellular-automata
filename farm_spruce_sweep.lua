@@ -37,7 +37,13 @@ local function farm_spruce_sweep()
   -- Spiral over the cells around the tree base, sucking up the drops.
   C.sweepAround(C.SPRUCE_X, C.SPRUCE_Z, C.SPRUCE_Y)
 
-  -- Return via the sweep's own route (forward 3, turn left, east lane home).
+  -- Step back to the tree base (the cell just south of the sapling, facing the
+  -- charger) so the return always starts from the same spot -- the spiral can end
+  -- anywhere, and this makes the route below a clean "forward 3, then turn left".
+  C.gotoNoBreak(C.SPRUCE_X, C.SPRUCE_Z + 1, C.SPRUCE_Y)
+  C.face(2)
+
+  -- Return via the sweep's own route (forward 3 south, turn left, east lane home).
   C.followPath(C.SPRUCE_SWEEP_RETURN_PATH)
   C.face(2)
 
