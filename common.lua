@@ -1719,6 +1719,17 @@ C.SPRUCE_RETURN_PATH = {
   { x = 4, y = 1, z = 3 },
 }
 
+-- The spruce SWEEP's own return: go forward (south) 3 with no turn, then turn LEFT
+-- (east) and run down the x=7 lane to the stasis row, then west back to stasis --
+-- instead of turning right (west) off the tree cell. followPath adjusts x before z,
+-- so each leg here moves along a single axis.
+C.SPRUCE_SWEEP_RETURN_PATH = {
+  { x = 4, y = 1, z = 10 },   -- forward 3 (south), no turn
+  { x = 7, y = 1, z = 10 },   -- turn left (east) to the x=7 lane
+  { x = 7, y = 1, z = 3 },    -- south along the lane to the stasis row
+  { x = 4, y = 1, z = 3 },    -- west back to stasis (4,1,3)
+}
+
 function C.suckMatchFromFront(match)
   local size = inv.getInventorySize(sides.front)
   if not size then
