@@ -370,14 +370,26 @@ end
 -- gathered, not crafted).
 function C.buildCraftList()
   local labelMap = labelToRecipeKey()
-  local function craftable(name)
-    return (C.RECIPES and C.RECIPES[name]) or (labelMap and labelMap[name]) or nil
+  local function recipeOf(name)
+    local key = (C.RECIPES and C.RECIPES[name] and name) or (labelMap and labelMap[name])
+    return key and C.RECIPES[key] or nil
+  end
+  -- What the FINISHED stack is actually identified by: its recipe's result label
+  -- (or name), not the BOM key. Keying tracking off the raw BOM id (e.g. "furnace",
+  -- "td:leadstone_fluxduct") means specFor produces a name-spec that never matches
+  -- the live item, so it's never kept in the tracked chest.
+  local function craftedIdentity(name)
+    local recipe = recipeOf(name)
+    if recipe and type(recipe.result) == "table" then
+      return recipe.result.label or recipe.result.name or name
+    end
+    return name
   end
 
   local list = {}
   local function add(name, count)
-    if name and count and count > 0 and craftable(name) then
-      list[#list + 1] = { name = name, count = count }
+    if name and count and count > 0 and recipeOf(name) then
+      list[#list + 1] = { name = craftedIdentity(name), count = count }
     end
   end
 
@@ -600,7 +612,11 @@ end
 
 -- The full ordered production plan for one build: every craft and smelt needed
 -- to turn raw base materials into all the BOM items, deepest-first.
+-- The plan is a pure function of the static BOM + recipes, but the autocrafter
+-- rebuilds it every weave cycle. Compute it once and cache.
+local _productionPlanCache
 function C.buildProductionPlan()
+  if _productionPlanCache then return _productionPlanCache end
   local merged = {}
   local order = {}
   for _, entry in ipairs(C.buildCraftList()) do
@@ -614,6 +630,7 @@ function C.buildProductionPlan()
       end
     end
   end
+  _productionPlanCache = order
   return order
 end
 

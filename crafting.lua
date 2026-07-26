@@ -406,10 +406,10 @@ local function runJob(job, crafting)
     if batteryLevel() < 0.25 then
       return batches, "low battery"
     end
-    -- Snapshot the inventory once; have()/chestCanSupply()/maxMultiplier() below
-    -- all read it instead of re-scanning slot-by-slot. loadGrid/craftOnce mutate
-    -- the inventory afterward, and the next pass re-snapshots.
-    refreshInvSnap()
+    -- The snapshot is kept current by crafting_state up front and refreshed after
+    -- each craft (and after a failure's clearGrid) below, so it's already valid
+    -- here. An already-satisfied job therefore costs one count, not a fresh
+    -- full-inventory scan -- the win across a weave's worth of mostly-done jobs.
     if have() >= target then
       break
     end
@@ -425,13 +425,16 @@ local function runJob(job, crafting)
 
     if not loadGrid(recipe, mult) then
       clearGrid()
+      refreshInvSnap()
       return batches, "could not load grid"
     end
     if not craftOnce(recipe, crafting, yield * mult) then
       clearGrid()
+      refreshInvSnap()
       return batches, "craft failed"
     end
     batches = batches + mult
+    refreshInvSnap()   -- inventory changed; keep the snapshot current
   end
 
   return batches
@@ -478,6 +481,10 @@ local function crafting_state(jobs)
     C.gotoStasisFromChest()
     return "stasis"
   end
+
+  -- Prime the inventory snapshot once; runJob keeps it current after each craft,
+  -- so jobs that are already satisfied don't each re-scan all 64 slots.
+  refreshInvSnap()
 
   C.lastCraftReport = {}
   for _, job in ipairs(jobs) do
