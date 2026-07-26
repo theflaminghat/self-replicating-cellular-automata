@@ -114,7 +114,15 @@ local function farm_spruce()
 
   -- Collecting the leaf-decay drops is a SEPARATE state (farm_spruce_sweep), run
   -- later so the drops have time to fall; this state only harvests and replants.
-  C.followPath(C.SPRUCE_RETURN_PATH)
+  --
+  -- Return to stasis: forward 3, left, down, forward 9, left, forward 3, right.
+  for _ = 1, 3 do if not C.moveForward() then break end end
+  C.turnLeft()
+  C.moveDown()
+  for _ = 1, 9 do if not C.moveForward() then break end end
+  C.turnLeft()
+  for _ = 1, 3 do if not C.moveForward() then break end end
+  C.turnRight()
   C.face(2)
 
   return "stasis"
