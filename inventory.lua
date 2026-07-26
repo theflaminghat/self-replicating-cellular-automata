@@ -101,10 +101,14 @@ local function depositTrackedChest()
           if C.matchesSpec(stack, specs[ti]) then
             local room = (tracked[ti].target or 0) - stored[ti]
             if room > 0 then
-              local toDrop = math.min(room, stack.size)
+              local before = stack.size
               robot.select(i)
-              robot.drop(toDrop)
-              stored[ti] = stored[ti] + toDrop
+              robot.drop(math.min(room, before))
+              -- drop() can move fewer than asked when the chest fills up. Count what
+              -- ACTUALLY left the slot so `stored` -- and the keep budget derived
+              -- from it -- reflect the chest's real contents, not the request.
+              local after = inv.getStackInInternalSlot(i)
+              stored[ti] = stored[ti] + (before - ((after and after.size) or 0))
             end
             break
           end
@@ -112,6 +116,17 @@ local function depositTrackedChest()
       end
     end
   end
+
+  -- Keep budget: for each tracked resource, how much to hold back in inventory
+  -- because the chest couldn't take the full target (target minus what actually
+  -- landed in the chest). A resource only overflows what it has BEYOND this, so
+  -- materials still needed for replication ride along in inventory instead of
+  -- being stranded in the overflow wall.
+  local keep = {}
+  for ti = 1, #tracked do
+    keep[ti] = math.max(0, (tracked[ti].target or 0) - stored[ti])
+  end
+  return specs, keep
 end
 
 -- A collected offspring robot waiting to be dispatched. It must NOT be dumped into
@@ -124,48 +139,85 @@ local function isOffspringRobot(stack)
          or (stack.label and string.find(stack.label, "Robot", 1, true)))
 end
 
--- Any non-reserve slot still holding storable items? (Reserve cobble stays for
--- pillaring; a waiting offspring robot is held for dispatch, not storable.)
-local function hasStorableItems()
+-- Index of the first tracked entry `stack` matches, or nil (untracked).
+local function matchTracked(stack, specs)
+  for ti = 1, #specs do
+    if C.matchesSpec(stack, specs[ti]) then return ti end
+  end
+  return nil
+end
+
+-- Is there anything the robot should OVERFLOW given the keep budget? That's any
+-- untracked item, or a tracked resource in excess of its keep budget (the amount
+-- reserved in inventory to reach its replication target). Tracked resources within
+-- budget -- and a waiting offspring robot -- are not overflow-able, so when only
+-- those remain this returns false and depositOverflow skips the chest-wall walk
+-- entirely. `keptSoFar` mirrors what dumpAllHere would retain as it scans.
+local function overflowable(specs, keep)
+  local keptSoFar = {}
   for i = 1, INVENTORY_SIZE do
     if not RESERVE[i] then
       local stack = inv.getStackInInternalSlot(i)
       if stack and stack.size and stack.size > 0 and not isOffspringRobot(stack) then
-        return true
+        local ti = matchTracked(stack, specs)
+        if not ti then
+          return true                                   -- untracked: overflow it
+        end
+        local allowed = math.max(0, (keep[ti] or 0) - (keptSoFar[ti] or 0))
+        local keepAmt = math.min(stack.size, allowed)
+        keptSoFar[ti] = (keptSoFar[ti] or 0) + keepAmt
+        if stack.size > keepAmt then
+          return true                                   -- tracked beyond budget
+        end
       end
     end
   end
   return false
 end
 
--- Dump every non-reserve slot into the chest in front. The tracked chest already
--- holds each tracked resource up to its target; everything left -- excess tracked
--- resources AND untracked items -- flows into the overflow chests here. Whatever
--- doesn't fit (chest full) simply stays put, so the robot's inventory is only used
--- once the chests can no longer hold the resource.
-local function dumpAllHere()
+-- Dump the OVERFLOW portion of each non-reserve slot into the chest in front:
+-- untracked items entirely, and tracked resources only beyond their keep budget.
+-- Tracked resources still needed for replication (within budget) and a waiting
+-- offspring robot are left in inventory. Whatever doesn't fit (chest full) simply
+-- stays put, so inventory holds a resource only once the chests can't take it.
+local function dumpAllHere(specs, keep)
+  local keptSoFar = {}
   for i = 1, INVENTORY_SIZE do
     if not RESERVE[i] then
       local stack = inv.getStackInInternalSlot(i)
       if stack and stack.size and stack.size > 0 and not isOffspringRobot(stack) then
-        robot.select(i)
-        robot.drop()
+        local ti = matchTracked(stack, specs)
+        local dropAmt
+        if ti then
+          local allowed = math.max(0, (keep[ti] or 0) - (keptSoFar[ti] or 0))
+          local keepAmt = math.min(stack.size, allowed)
+          keptSoFar[ti] = (keptSoFar[ti] or 0) + keepAmt
+          dropAmt = stack.size - keepAmt
+        else
+          dropAmt = stack.size
+        end
+        if dropAmt > 0 then
+          robot.select(i)
+          robot.drop(dropAmt)
+        end
       end
     end
   end
 end
 
--- Deposit leftovers into the overflow chests, one access cell at a time, until
--- nothing storable remains (or the chests fill up). Skips the tracked chest cell.
-local function depositOverflow()
+-- Deposit overflow into the overflow chests, one access cell at a time, until
+-- nothing overflow-able remains (or the chests fill up). Skips the tracked chest
+-- cell. In steady state -- chest holding the full target, no untracked junk --
+-- overflowable() is false up front and the robot never walks the wall at all.
+local function depositOverflow(specs, keep)
   for _, z in ipairs(CHEST_ZS) do
     for level = 1, CHEST_LEVELS do
-      if not hasStorableItems() then return end
+      if not overflowable(specs, keep) then return end
       local isTrackedCell =
         (z == C.TRACKED_CHEST.z and level == C.TRACKED_CHEST.y)
       if not isTrackedCell then
         gotoChestCell(z, level)
-        dumpAllHere()
+        dumpAllHere(specs, keep)
       end
     end
   end
@@ -257,11 +309,12 @@ local function inventory()
   -- Charger (stasis) -> chest wall via the predefined sequence.
   C.gotoChestFromStasis()
 
-  clearReserveOfNonCobble()       -- reserve slots hold cobble only
-  depositTrackedChest()
-  C.topUpReserveFromInventory()   -- reserve first, from cobble still carried
-  depositOverflow()               -- then everything else flows to overflow chests
-  refillReserveFromOverflow()     -- top up any remaining reserve from those chests
+  clearReserveOfNonCobble()          -- reserve slots hold cobble only
+  local specs, keep = depositTrackedChest()  -- fill tracked chest; get keep budget
+  C.topUpReserveFromInventory()      -- reserve first, from cobble still carried
+  depositOverflow(specs, keep)       -- only the EXCESS beyond target overflows;
+                                     -- target resources ride along in inventory
+  refillReserveFromOverflow()        -- top up any remaining reserve from those chests
 
   -- Return to the tracked-chest access cell, then back to the charger.
   gotoChestCell(C.TRACKED_CHEST.z, C.TRACKED_CHEST.y)

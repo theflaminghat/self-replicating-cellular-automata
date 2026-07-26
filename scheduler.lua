@@ -110,36 +110,47 @@ local function furnaceAddStep()
 
   local items = {}
   for _, s in ipairs(smeltables) do items[#items + 1] = s.input end
+  -- Stone is a smelt OUTPUT, not an input, so add it explicitly: we need its
+  -- on-hand count to cap cobblestone smelting to the build's stone demand.
+  items[#items + 1] = "minecraft:stone"
   local counts = C.readChestCounts(items)
 
   -- Coal on hand for smelting. Each job burns ceil(amount/8) coal; jobs that can't
   -- be fueled are skipped this pass and retried later, once more coal is available.
   local coalLeft = C.readChestCounts({ SMELT_FUEL })[SMELT_FUEL] or 0
 
+  local builds = C.buildsNeeded()
+
   local jobs = {}
   for _, s in ipairs(smeltables) do
-    -- Cobblestone is the primary mined block and floods the chest; smelting it to
-    -- stone would monopolize the single furnace and starve the ores, so it is not
-    -- part of the automatic smelt loop.
-    if s.input ~= "minecraft:cobblestone" then
+    local amount
+    if s.input == "minecraft:cobblestone" then
+      -- Cobblestone is the primary mined block and floods the chest; smelting the
+      -- whole pile to stone would monopolize the single furnace and starve the
+      -- ores. But the build DOES need a little stone (the stone button), so smelt
+      -- cobblestone only up to that demand minus the stone already on hand.
+      local need = C.smeltInputNeed("minecraft:cobblestone") * builds
+      local deficit = need - (counts["minecraft:stone"] or 0)
+      amount = math.min(counts[s.input] or 0, math.max(0, deficit), 64)
+    else
       -- One furnace load is at most a stack (64). Larger piles are smelted across
       -- successive passes rather than all at once.
-      local amount = math.min(smeltAmount(counts[s.input] or 0), 64)
-      if amount > 0 then
-        local fuelNeed = math.ceil(amount / 8)
-        if coalLeft >= fuelNeed then
-          jobs[#jobs + 1] = {
-            -- A spec (id or { label = ... }) so furnace_add pulls the ore from the
-            -- chest by whichever key actually identifies it.
-            item = C.specFor(s.input),
-            fuel = SMELT_FUEL,
-            amount = amount,
-            fuelAmount = fuelNeed,
-          }
-          coalLeft = coalLeft - fuelNeed
-        end
-        -- else: not enough coal for this ore right now -- skip, retry next pass.
+      amount = math.min(smeltAmount(counts[s.input] or 0), 64)
+    end
+    if amount > 0 then
+      local fuelNeed = math.ceil(amount / 8)
+      if coalLeft >= fuelNeed then
+        jobs[#jobs + 1] = {
+          -- A spec (id or { label = ... }) so furnace_add pulls the input from the
+          -- chest by whichever key actually identifies it.
+          item = C.specFor(s.input),
+          fuel = SMELT_FUEL,
+          amount = amount,
+          fuelAmount = fuelNeed,
+        }
+        coalLeft = coalLeft - fuelNeed
       end
+      -- else: not enough coal for this input right now -- skip, retry next pass.
     end
   end
 

@@ -453,7 +453,16 @@ function C.scaleTrackedResources()
   -- so Stone is not reserved at all.
   local SMELT_UNTRACKED_INPUT = 64
   for _, s in ipairs(C.smeltables()) do
-    if s.input ~= C.COBBLE_NAME then
+    if s.input == C.COBBLE_NAME then
+      -- Cobblestone isn't smelted wholesale (that would flood the furnace), so its
+      -- stone OUTPUT isn't reserved at the input amount. But the build does need a
+      -- little stone (the stone button), so track that output at the ACTUAL build
+      -- demand. Keeping it in the tracked chest makes it available to crafting and
+      -- lets furnaceAddStep see how much already exists and stop smelting. The
+      -- cobblestone input is already tracked in bulk for the floor.
+      local need = C.smeltInputNeed(C.COBBLE_NAME) * builds
+      if need > 0 and not index[s.output] then put(s.output, need) end
+    else
       local inEntry = index[s.input]
       local amount = (inEntry and inEntry.target) or SMELT_UNTRACKED_INPUT
       if not index[s.input] then put(s.input, amount) end
@@ -632,6 +641,21 @@ function C.buildProductionPlan()
   end
   _productionPlanCache = order
   return order
+end
+
+-- Per-build quantity of `inputName` the BOM's smelt steps must CONSUME (0 if none).
+-- The furnace uses this to smelt a flood-prone input -- cobblestone, mined by the
+-- ton -- only up to the little the build actually needs (its stone, for the stone
+-- button) instead of converting the whole pile and starving the ore smelts. For a
+-- 1:1 smelt this equals the output demand.
+function C.smeltInputNeed(inputName)
+  local total = 0
+  for _, step in ipairs(C.buildProductionPlan()) do
+    if step.action == "smelt" and step.input == inputName then
+      total = total + (step.count or 0)
+    end
+  end
+  return total
 end
 
 -- The yield of the recipe that makes `name` (via id key or label bridge), or 1.

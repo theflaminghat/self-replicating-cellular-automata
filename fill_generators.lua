@@ -72,28 +72,27 @@ local function pullCoal(count)
   return got
 end
 
--- Drop up to `count` coal into the generator directly in front.
+-- Drop up to `count` coal into the generator directly in front. Works from one
+-- coal slot at a time -- reading just that slot's size before/after the drop
+-- instead of rescanning the whole inventory each iteration (coal is usually a
+-- single stack, so this is one drop and two single-slot reads).
 local function fuelFront(count)
-  -- Compare against what we held when we started, so this works whether the
-  -- robot is carrying exactly `count` or a larger pooled stack for both
-  -- generators. (moved = held_before - held_now.)
-  local before = heldCoal()
   local moved = 0
   while moved < count do
-    local remainingHeld = heldCoal()
-    if remainingHeld == 0 then break end
     local from = findHeldSlot()
     if not from then break end
     robot.select(from)
-    local want = count - moved
-    -- Use robot.drop into the block in front. Unlike dropIntoSlot it doesn't
-    -- target a specific slot; the generator takes the coal as fuel.
-    local ok, done = pcall(robot.drop, want)
+    local st = inv.getStackInInternalSlot(from)
+    local have = (st and st.size) or 0
+    if have == 0 then break end
+    -- robot.drop into the block in front; unlike dropIntoSlot it doesn't target a
+    -- specific slot -- the generator takes the coal as fuel.
+    local ok, done = pcall(robot.drop, count - moved)
     if not (ok and done) then break end
-    local after = heldCoal()
-    local justMoved = remainingHeld - after
+    local after = inv.getStackInInternalSlot(from)
+    local justMoved = have - ((after and after.size) or 0)
     if justMoved <= 0 then break end
-    moved = before - after
+    moved = moved + justMoved
   end
   return moved
 end
