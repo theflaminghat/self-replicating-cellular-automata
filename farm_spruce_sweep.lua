@@ -1,9 +1,9 @@
 -- farm_spruce_sweep.lua
 -- Collect the spruce tree's leaf-decay drops (saplings, sticks, apples) after the
 -- tree has been harvested by farm_spruce. Waits for the drops to fall, walks out in
--- front of the trunk, spirals around it (never stepping onto the trunk cell),
--- returns to the cell in front of the trunk, then retraces the outbound steps back
--- to stasis. Kept separate from farm_spruce so the harvest isn't blocked on drops.
+-- front of the sapling WITHOUT crossing it, spirals around it (never stepping onto
+-- the sapling cell), ends on the west edge, then heads down the x=1 lane back to
+-- stasis. Kept separate from farm_spruce so the harvest isn't blocked on drops.
 local C = require("common")
 
 local robot = C.robot
@@ -15,18 +15,11 @@ local batteryLevel = C.batteryLevel
 -- runs right after the harvest; harmless (just a minimum) when it runs later.
 local DROP_WAIT = 30
 
-local TRUNK_X, TRUNK_Z, TRUNK_Y = C.SPRUCE_X, C.SPRUCE_Z, C.SPRUCE_Y  -- 4, 12, 1
-local FRONT_X, FRONT_Z = C.SPRUCE_X - 1, C.SPRUCE_Z                    -- 3, 12
+local TRUNK_X, TRUNK_Z = C.SPRUCE_X, C.SPRUCE_Z   -- 4, 12 (the sapling cell)
 
 local function fwd(n)
   for _ = 1, n do
     if not C.moveForward() then break end
-  end
-end
-
-local function back(n)
-  for _ = 1, n do
-    if not C.moveBack() then break end
   end
 end
 
@@ -35,9 +28,9 @@ local function onTrunk(x, z)
 end
 
 -- Step one cell at a time toward (tx,tz) at the sweep level, NEVER stepping onto the
--- trunk cell. Prefer the x axis, fall back to z when the x step would land on the
--- trunk. Consecutive spiral cells are adjacent, so this is one step each and simply
--- rounds the trunk on the transitions that would otherwise cross it.
+-- sapling cell. Prefer the x axis, fall back to z when the x step would land on the
+-- sapling. Consecutive spiral cells are adjacent, so this is one step each and just
+-- rounds the sapling on the transitions that would otherwise cross it.
 local function stepToward(tx, tz)
   local guard = 0
   while (pos.x ~= tx or pos.z ~= tz) and guard < 40 do
@@ -61,33 +54,27 @@ local function farm_spruce_sweep()
 
   os.sleep(DROP_WAIT)
 
-  -- Stasis -> in front of the trunk: right, forward 3, right, forward 9, right,
-  -- forward 2. Ends at (3,1,12) facing +X, one cell short of the trunk (4,12),
-  -- keeping clear of the sugarcane on the way.
+  -- Stasis -> in front of the sapling: right, forward 3, right, forward 9, right,
+  -- forward 2. Ends at (3,1,12) facing +X, one cell short of the sapling at (4,12)
+  -- (so it never crosses it) and clear of the sugarcane on the way.
   C.face(2)
   C.turnRight(); fwd(3)
   C.turnRight(); fwd(9)
   C.turnRight(); fwd(2)
 
-  -- Spiral around the trunk sucking up drops, stepping cell-to-cell so the robot
-  -- rounds the trunk instead of cutting across it. Start and end in front (3,12).
+  -- Spiral around the sapling (4,12) sucking up drops, stepping cell-to-cell so the
+  -- robot rounds the sapling instead of ever stepping onto it.
   for _, o in ipairs(C.spiralOffsets(C.SWEEP_RADIUS)) do
     stepToward(TRUNK_X + o.dx, TRUNK_Z + o.dz)
     robot.suckDown()
     robot.suck()
   end
-  stepToward(FRONT_X, FRONT_Z)   -- back to the cell in front of the trunk
 
-  -- Retrace the outbound to stasis: the reverse of right/fwd3/right/fwd9/right/fwd2.
-  -- From (3,12) facing +X: back 2, left, back 9, left, back 3, left -> (4,3) facing
-  -- the charger.
-  C.face(1)
-  back(2)
-  C.turnLeft()
-  back(9)
-  C.turnLeft()
-  back(3)
-  C.turnLeft()
+  -- End the sweep at (1,1,11) on the west edge, then take the x=1 lane home: south
+  -- to (1,3), then east to stasis.
+  stepToward(1, 11)
+  C.followPath({ { x = 1, y = 1, z = 3 }, { x = 4, y = 1, z = 3 } })
+  C.face(2)
 
   return "stasis"
 end
