@@ -23,20 +23,13 @@ return function(C)
                nil, nil, nil },
     },
     ["minecraft:chest"] = {
+      -- 8 spruce planks craft a Spruce Chest in this pack; the live item is matched
+      -- by its label, so declare the result so tracking/crafting recognize it.
+      result = { label = "Spruce Chest" },
       yield = 1,
       grid = { { label = "Spruce Wood Planks" }, { label = "Spruce Wood Planks" }, { label = "Spruce Wood Planks" },
                { label = "Spruce Wood Planks" }, nil,                { label = "Spruce Wood Planks" },
                { label = "Spruce Wood Planks" }, { label = "Spruce Wood Planks" }, { label = "Spruce Wood Planks" } },
-    },
-    ["spruce_chest"] = {
-      result = { label = "Spruce Chest" },
-      yield = 1,
-      grid = { { label = "Spruce Wood Planks" }, { label = "Spruce Wood Planks" },
-               { label = "Spruce Wood Planks" },
-               { label = "Spruce Wood Planks" }, nil,
-               { label = "Spruce Wood Planks" },
-               { label = "Spruce Wood Planks" }, { label = "Spruce Wood Planks" },
-               { label = "Spruce Wood Planks" } },
     },
     ["minecraft:hopper"] = {
       yield = 1,
@@ -161,7 +154,7 @@ return function(C)
       result = { label = "Computer Case (Tier 3)" },
       yield = 1,
       grid = { "minecraft:diamond",  { label = "Microchip (Tier 3)" }, "minecraft:diamond",
-               "minecraft:iron_bars", "minecraft:chest",               "minecraft:iron_bars",
+               "minecraft:iron_bars", { label = "Spruce Chest" },        "minecraft:iron_bars",
                "minecraft:diamond",  { label = "Printed Circuit Board (PCB)" },
                "minecraft:diamond" },
     },
@@ -335,7 +328,7 @@ return function(C)
       result = { label = "Machine Block" },
       yield = 1,
       grid = { "minecraft:iron_ingot", "minecraft:redstone",  "minecraft:iron_ingot",
-               "minecraft:redstone",   "minecraft:chest",     "minecraft:redstone",
+               "minecraft:redstone",   { label = "Spruce Chest" }, "minecraft:redstone",
                "minecraft:iron_ingot", "minecraft:redstone",  "minecraft:iron_ingot" },
     },
 

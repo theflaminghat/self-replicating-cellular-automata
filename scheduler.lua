@@ -46,7 +46,11 @@ local SMELT_FUEL = "minecraft:coal"
 local PICKAXE = "minecraft:iron_pickaxe"
 local PICKAXE_LABEL = "Iron Pickaxe"
 
--- Runs once at power-on.
+-- Set true when the robot is already built and parked at stasis: skips the one-time
+-- startup (building the base + initial mining) and goes straight to the main weave.
+local start_from_stasis = false
+
+-- Runs once at power-on (skipped entirely when start_from_stasis is set).
 local STARTUP = {
   "building",
   "inventory",
@@ -451,8 +455,10 @@ local function scheduler()
   -- pending) so a reboot resumes rather than restarts.
   loadReplication()
 
-  for _, entry in ipairs(STARTUP) do
-    runToCompletion(entry)
+  if not start_from_stasis then
+    for _, entry in ipairs(STARTUP) do
+      runToCompletion(entry)
+    end
   end
 
   while true do
