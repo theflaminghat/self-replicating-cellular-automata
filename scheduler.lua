@@ -108,30 +108,44 @@ end
 local function furnaceAddStep()
   local smeltables = C.smeltables()
 
+  -- Cobblestone floods the chest, so its stone OUTPUT is capped to the build's real
+  -- demand rather than smelting the whole pile. Precompute that demand and who
+  -- consumes stone, so we can discount stone the build already has -- both raw stone
+  -- and stone already baked into finished buttons.
+  local builds = C.buildsNeeded()
+  local stoneDemand = C.smeltInputNeed("minecraft:cobblestone") * builds
+  local stoneConsumers = C.smeltOutputConsumers("minecraft:stone", "Stone")
+
   local items = {}
   for _, s in ipairs(smeltables) do items[#items + 1] = s.input end
-  -- Stone is a smelt OUTPUT, not an input, so add it explicitly: we need its
-  -- on-hand count to cap cobblestone smelting to the build's stone demand.
-  items[#items + 1] = "minecraft:stone"
+  items[#items + 1] = "minecraft:stone"          -- output, to gauge raw stone on hand
+  for _, c in ipairs(stoneConsumers) do items[#items + 1] = c.key end
   local counts = C.readChestCounts(items)
 
   -- Coal on hand for smelting. Each job burns ceil(amount/8) coal; jobs that can't
   -- be fueled are skipped this pass and retried later, once more coal is available.
   local coalLeft = C.readChestCounts({ SMELT_FUEL })[SMELT_FUEL] or 0
 
-  local builds = C.buildsNeeded()
+  -- Stone the build already has toward its demand. The freshly smelted stone is
+  -- collected into INVENTORY by furnaceTakeStep just before this runs, so counting
+  -- the chest alone would miss it and smelt a second batch. And once that stone is
+  -- crafted into buttons it's "gone" from the stone count -- so also credit the
+  -- stone embodied in finished buttons, or the furnace would re-smelt after the
+  -- buttons are already made. Both are what the user saw as an extra stone job.
+  local stoneOnHand = (counts["minecraft:stone"] or 0)
+                    + C.heldCount(C.specFor("minecraft:stone"))
+  for _, c in ipairs(stoneConsumers) do
+    stoneOnHand = stoneOnHand
+      + ((counts[c.key] or 0) + C.heldCount(C.specFor(c.key))) * c.per
+  end
 
   local jobs = {}
   for _, s in ipairs(smeltables) do
     local amount
     if s.input == "minecraft:cobblestone" then
-      -- Cobblestone is the primary mined block and floods the chest; smelting the
-      -- whole pile to stone would monopolize the single furnace and starve the
-      -- ores. But the build DOES need a little stone (the stone button), so smelt
-      -- cobblestone only up to that demand minus the stone already on hand.
-      local need = C.smeltInputNeed("minecraft:cobblestone") * builds
-      local deficit = need - (counts["minecraft:stone"] or 0)
-      amount = math.min(counts[s.input] or 0, math.max(0, deficit), 64)
+      -- Smelt cobblestone to stone only up to the build's OUTSTANDING stone demand.
+      amount = math.min(counts[s.input] or 0,
+                        math.max(0, stoneDemand - stoneOnHand), 64)
     else
       -- One furnace load is at most a stack (64). Larger piles are smelted across
       -- successive passes rather than all at once.

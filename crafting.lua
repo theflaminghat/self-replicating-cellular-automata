@@ -147,6 +147,25 @@ local function chestCountOf(item)
   return total
 end
 
+-- How many of `name` are already embodied in finished products that consume it --
+-- and, recursively, in the products that consume THOSE. An intermediate (a dropper,
+-- a chest baked into a machine, ...) is consumed the moment its parent is crafted,
+-- so a loose-only count reads it as "0 made" and the autocrafter re-crafts a whole
+-- batch every cycle, piling the surplus into overflow. Crediting the embodied copies
+-- makes a fully-consumed intermediate read as satisfied. `seen` guards recipe cycles.
+local function embodiedCount(name, seen)
+  seen = seen or {}
+  if seen[name] then return 0 end
+  seen[name] = true
+  local total = 0
+  for _, c in ipairs(C.itemConsumers(name)) do
+    local spec = C.specFor(c.name)
+    local made = countInInventory(spec) + chestCountOf(spec) + embodiedCount(c.name, seen)
+    total = total + made * c.per
+  end
+  return total
+end
+
 local function pullFromChest(item, count, intoSlot)
   local got = 0
   for _, e in ipairs(chestEntries()) do
@@ -394,12 +413,17 @@ local function runJob(job, crafting)
   local target = job.amount or 0
   local batches = 0
 
+  -- Copies of this item already consumed into finished parents. Crafting this item
+  -- doesn't change its consumers' counts, so compute it once per job rather than per
+  -- pass. Without it, a consumed intermediate re-crafts a full batch every cycle.
+  local embodied = embodiedCount(job.name, nil)
+
   local function have()
     local n = countInInventory(resultItem)
     if job.countChest then
       n = n + chestCountOf(resultItem)
     end
-    return n
+    return n + embodied
   end
 
   for _ = 1, MAX_PASSES do

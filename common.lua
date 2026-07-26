@@ -658,6 +658,53 @@ function C.smeltInputNeed(inputName)
   return total
 end
 
+-- Non-smelt/crush recipes that CONSUME the smelt output identified by `outputKey`
+-- (or its display `outputLabel`) in their grid, as { key, per } -- how many of the
+-- output each craft uses. Lets the furnace count stone already baked into finished
+-- products (e.g. buttons) toward the build's stone demand, so it stops smelting
+-- once the stone is spoken for instead of re-smelting a fresh batch.
+function C.smeltOutputConsumers(outputKey, outputLabel)
+  local consumers = {}
+  for key, recipe in pairs(C.RECIPES or {}) do
+    if not (recipe.smelt or recipe.crush) then
+      local per = 0
+      for i = 1, 9 do
+        local g = recipe.grid and recipe.grid[i]
+        if g then
+          local n = itemName(g)
+          if n == outputKey or (outputLabel and n == outputLabel) then
+            per = per + 1
+          end
+        end
+      end
+      if per > 0 then consumers[#consumers + 1] = { key = key, per = per } end
+    end
+  end
+  return consumers
+end
+
+-- Every recipe (craft, smelt, or crush) that consumes `ingredientName` in its grid,
+-- as { name, per }: the consumer's crafted identity (result label/name, for counting
+-- how many exist) and how many of the ingredient each craft uses. The autocrafter
+-- sums the ingredient already embodied in finished consumers so it stops re-crafting
+-- an intermediate once the parent that eats it has been built.
+function C.itemConsumers(ingredientName)
+  local consumers = {}
+  for key, recipe in pairs(C.RECIPES or {}) do
+    local per = 0
+    for i = 1, 9 do
+      local g = recipe.grid and recipe.grid[i]
+      if g and itemName(g) == ingredientName then per = per + 1 end
+    end
+    if per > 0 then
+      local ident = (type(recipe.result) == "table"
+                     and (recipe.result.label or recipe.result.name)) or key
+      consumers[#consumers + 1] = { name = ident, per = per }
+    end
+  end
+  return consumers
+end
+
 -- The yield of the recipe that makes `name` (via id key or label bridge), or 1.
 function C.recipeYield(name)
   local labelMap = labelToRecipeKey()
