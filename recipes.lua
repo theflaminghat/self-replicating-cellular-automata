@@ -449,6 +449,19 @@ return function(C)
                nil,              nil, nil },
     },
 
+    -- Black Quartz Ore smelts 1:1 into Black Quartz, the center ingredient of the
+    -- Iron Casing (aa:iron_casing) -> Coal Generator chain. Adding it lets the base-
+    -- material expander walk the coal generator down to a mineable ore instead of an
+    -- uncraftable dead end.
+    ["aa:black_quartz_smelt"] = {
+      result = { label = "Black Quartz" },
+      yield = 1,
+      smelt = true,
+      grid = { { label = "Black Quartz Ore" }, nil, nil,
+               nil,                            nil, nil,
+               nil,                            nil, nil },
+    },
+
     -- The crusher grinds cobblestone into sand: 64 cobblestone -> 8 sand, i.e. 8
     -- cobblestone per sand. crush = true marks it a crusher recipe (handled by
     -- C.addToCrusher / C.takeFromHopper, not the crafting grid or the furnace).
