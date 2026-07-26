@@ -34,6 +34,15 @@ local function stasis()
   end
   C.face(2)  -- face the charger (and the lever above it)
 
+  -- Top up the generators that power the charger BEFORE drawing on them. The robot
+  -- is now parked at stasis facing the charger, which is exactly where
+  -- fill_generators' scripted route expects to begin (calling it from the charge
+  -- cycle ran it from the shaft, sending the whole sequence off course).
+  if C.fillGenerators then
+    C.fillGenerators()
+    C.face(2)   -- re-orient in case the fuel run left us facing elsewhere
+  end
+
   if batteryLevel() < 0.9 then
     toggleCharger()                       -- flip the lever on to start charging
     while batteryLevel() < 0.9 do

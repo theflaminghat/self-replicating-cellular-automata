@@ -178,6 +178,25 @@ local function frontChestEmpty()
   return true
 end
 
+-- Reserve slots must hold cobblestone only. If something else has ended up in one
+-- (e.g. from an arrangement eviction), move it into a normal slot so the deposit
+-- flow stores it -- or, failing that, straight into the chest in front -- leaving
+-- the reserve slot free for cobble.
+local function clearReserveOfNonCobble()
+  for _, rs in ipairs(C.RESERVE_COBBLE_SLOTS or {}) do
+    local st = inv.getStackInInternalSlot(rs)
+    if st and st.size and st.size > 0 and st.name ~= COBBLE then
+      robot.select(rs)
+      local dest = C.freeSlot()
+      if dest then
+        robot.transferTo(dest)
+      else
+        robot.drop()
+      end
+    end
+  end
+end
+
 -- Pull cobblestone from the chest in front into the reserve slots, up to full.
 local function suckCobbleFromFront()
   local size = inv.getInventorySize(sides.front)
@@ -227,6 +246,7 @@ local function inventory()
   -- Charger (stasis) -> chest wall via the predefined sequence.
   C.gotoChestFromStasis()
 
+  clearReserveOfNonCobble()       -- reserve slots hold cobble only
   depositTrackedChest()
   C.topUpReserveFromInventory()   -- reserve first, from cobble still carried
   depositOverflow()               -- then everything else flows to overflow chests

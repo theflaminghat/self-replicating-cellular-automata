@@ -410,7 +410,8 @@ local function runJob(job, crafting)
     -- each craft (and after a failure's clearGrid) below, so it's already valid
     -- here. An already-satisfied job therefore costs one count, not a fresh
     -- full-inventory scan -- the win across a weave's worth of mostly-done jobs.
-    if have() >= target then
+    local before = have()
+    if before >= target then
       break
     end
     if not chestCanSupply(recipe, 1) then
@@ -418,7 +419,7 @@ local function runJob(job, crafting)
     end
 
     local yield = recipe.yield or 1
-    local shortfall = target - have()
+    local shortfall = target - before
     local wantBatches = math.ceil(shortfall / yield)
     if wantBatches < 1 then wantBatches = 1 end
     local mult = maxMultiplier(recipe, wantBatches)
@@ -435,6 +436,14 @@ local function runJob(job, crafting)
     end
     batches = batches + mult
     refreshInvSnap()   -- inventory changed; keep the snapshot current
+
+    -- Stop if the freshly crafted output isn't being counted toward the target
+    -- (have() didn't rise). That means the recipe's result identity doesn't match
+    -- the live item's, and without this guard the loop would keep crafting until it
+    -- burned through every ingredient making output it can't recognize.
+    if have() <= before then
+      return batches, "crafted output not counted (recipe result vs live item)"
+    end
   end
 
   return batches

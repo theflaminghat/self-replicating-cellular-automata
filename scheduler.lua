@@ -63,20 +63,16 @@ local WEAVE  -- forward declaration; filled in after the step functions exist.
 -- Charge the robot: run "returning" (drive to the charger) then "stasis" (sit
 -- and charge). We stop chaining once a state other than returning/stasis would
 -- be next, so we don't wander off into the old stasis -> mining default.
+-- Charge cycle: drive home (returning) then sit and charge (stasis). The stasis
+-- state fuels the generators itself, right after it parks at the charger and before
+-- it draws on them -- so no fill_generators call belongs here.
 local function chargeCycle()
   local next = "returning"
   local guard = 0
-  local fueled = false
   while guard < 8 do
     guard = guard + 1
     local handler = states[next]
     if not handler then break end
-    -- Once home and about to charge, top up the generators that power the charger
-    -- first (they must be fed exactly when the battery is low). Fuel once per cycle.
-    if next == "stasis" and not fueled then
-      states.fill_generators()
-      fueled = true
-    end
     next = handler()
     if next ~= "returning" and next ~= "stasis" then
       break

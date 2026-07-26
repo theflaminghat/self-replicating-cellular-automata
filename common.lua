@@ -1727,6 +1727,10 @@ function C.suckMatchFromFront(match)
   for slot = 1, size do
     local stack = inv.getStackInSlot(sides.front, slot)
     if stack and stack.name and string.find(stack.name, match, 1, true) then
+      -- Suck into a real empty slot; suckFromSlot targets the SELECTED slot, and if
+      -- that happened to hold something else the transfer would silently fail.
+      local dest = C.freeSlot()
+      if dest then robot.select(dest) end
       if inv.suckFromSlot(sides.front, slot, 1) then
         return true
       end
@@ -1760,12 +1764,17 @@ function C.takeFromTrackedChestLow(match)
 end
 
 function C.selectMatching(match)
-  for i = 1, 16 do
-    local stack = inv.getStackInInternalSlot(i)
-    if stack and stack.name and stack.size and stack.size > 0
-        and string.find(stack.name, match, 1, true) then
-      robot.select(i)
-      return true
+  -- Scan the WHOLE inventory (not just the first 16 slots) but skip the reserve
+  -- cobble -- a sucked sapling can land anywhere in a 64-slot robot, and the old
+  -- 1..16 limit is why replanting sometimes found nothing to place.
+  for i = 1, (C.INVENTORY_SIZE or 32) do
+    if not C.isReserveSlot(i) then
+      local stack = inv.getStackInInternalSlot(i)
+      if stack and stack.name and stack.size and stack.size > 0
+          and string.find(stack.name, match, 1, true) then
+        robot.select(i)
+        return true
+      end
     end
   end
   return false
