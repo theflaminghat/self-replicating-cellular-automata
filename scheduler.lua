@@ -455,7 +455,13 @@ local function scheduler()
   -- pending) so a reboot resumes rather than restarts.
   loadReplication()
 
-  if not start_from_stasis then
+  if start_from_stasis then
+    -- Already built and parked at the charger. The startup phase is what normally
+    -- establishes the robot's location, so seed the position tracker to stasis
+    -- (facing the charger, -Z) -- otherwise the weave navigates from the default
+    -- (0,0,0) and the quarry heads off to the wrong spot.
+    C.pos.x, C.pos.y, C.pos.z, C.pos.facing = C.STASIS_X, C.STASIS_Y, C.STASIS_Z, 2
+  else
     for _, entry in ipairs(STARTUP) do
       runToCompletion(entry)
     end
