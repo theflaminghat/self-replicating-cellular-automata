@@ -1,11 +1,13 @@
 -- farm_spruce_sweep.lua
 -- Collect the spruce tree's leaf-decay drops (saplings, sticks, apples) after the
--- tree has been harvested by farm_spruce. Waits for the drops to finish falling,
--- spirals out from the tree base sucking up ground/hovering items, then returns to
--- stasis. Kept separate from farm_spruce so the harvest isn't blocked waiting on
--- drops -- run this a few steps later in the weave, once the leaves have decayed.
+-- tree has been harvested by farm_spruce. Waits for the drops to fall, walks out in
+-- front of the trunk, spirals around it (never stepping onto the trunk cell),
+-- returns to the cell in front of the trunk, then retraces the outbound steps back
+-- to stasis. Kept separate from farm_spruce so the harvest isn't blocked on drops.
 local C = require("common")
 
+local robot = C.robot
+local pos = C.pos
 local os = C.os
 local batteryLevel = C.batteryLevel
 
@@ -13,9 +15,42 @@ local batteryLevel = C.batteryLevel
 -- runs right after the harvest; harmless (just a minimum) when it runs later.
 local DROP_WAIT = 30
 
+local TRUNK_X, TRUNK_Z, TRUNK_Y = C.SPRUCE_X, C.SPRUCE_Z, C.SPRUCE_Y  -- 4, 12, 1
+local FRONT_X, FRONT_Z = C.SPRUCE_X - 1, C.SPRUCE_Z                    -- 3, 12
+
 local function fwd(n)
   for _ = 1, n do
     if not C.moveForward() then break end
+  end
+end
+
+local function back(n)
+  for _ = 1, n do
+    if not C.moveBack() then break end
+  end
+end
+
+local function onTrunk(x, z)
+  return x == TRUNK_X and z == TRUNK_Z
+end
+
+-- Step one cell at a time toward (tx,tz) at the sweep level, NEVER stepping onto the
+-- trunk cell. Prefer the x axis, fall back to z when the x step would land on the
+-- trunk. Consecutive spiral cells are adjacent, so this is one step each and simply
+-- rounds the trunk on the transitions that would otherwise cross it.
+local function stepToward(tx, tz)
+  local guard = 0
+  while (pos.x ~= tx or pos.z ~= tz) and guard < 40 do
+    guard = guard + 1
+    local moved = false
+    if pos.x ~= tx and not onTrunk(pos.x + (tx > pos.x and 1 or -1), pos.z) then
+      moved = C.stepDirNoDig(tx > pos.x and 1 or 3)
+    end
+    if not moved and pos.z ~= tz
+        and not onTrunk(pos.x, pos.z + (tz > pos.z and 1 or -1)) then
+      moved = C.stepDirNoDig(tz > pos.z and 0 or 2)
+    end
+    if not moved then break end
   end
 end
 
@@ -26,26 +61,33 @@ local function farm_spruce_sweep()
 
   os.sleep(DROP_WAIT)
 
-  -- Stasis -> tree area, keeping clear of the sugarcane the plain over-the-top route
-  -- crossed: right, forward 3, right, forward 9, right, forward 2. Ends at (3,1,12)
-  -- facing +X, beside the tree, so the spiral below stays local.
+  -- Stasis -> in front of the trunk: right, forward 3, right, forward 9, right,
+  -- forward 2. Ends at (3,1,12) facing +X, one cell short of the trunk (4,12),
+  -- keeping clear of the sugarcane on the way.
   C.face(2)
   C.turnRight(); fwd(3)
   C.turnRight(); fwd(9)
   C.turnRight(); fwd(2)
 
-  -- Spiral over the cells around the tree base, sucking up the drops.
-  C.sweepAround(C.SPRUCE_X, C.SPRUCE_Z, C.SPRUCE_Y)
+  -- Spiral around the trunk sucking up drops, stepping cell-to-cell so the robot
+  -- rounds the trunk instead of cutting across it. Start and end in front (3,12).
+  for _, o in ipairs(C.spiralOffsets(C.SWEEP_RADIUS)) do
+    stepToward(TRUNK_X + o.dx, TRUNK_Z + o.dz)
+    robot.suckDown()
+    robot.suck()
+  end
+  stepToward(FRONT_X, FRONT_Z)   -- back to the cell in front of the trunk
 
-  -- Step back to the tree base (the cell just south of the sapling, facing the
-  -- charger) so the return always starts from the same spot -- the spiral can end
-  -- anywhere, and this makes the route below a clean "forward 3, then turn left".
-  C.gotoNoBreak(C.SPRUCE_X, C.SPRUCE_Z + 1, C.SPRUCE_Y)
-  C.face(2)
-
-  -- Return via the sweep's own route (forward 3 south, turn left, east lane home).
-  C.followPath(C.SPRUCE_SWEEP_RETURN_PATH)
-  C.face(2)
+  -- Retrace the outbound to stasis: the reverse of right/fwd3/right/fwd9/right/fwd2.
+  -- From (3,12) facing +X: back 2, left, back 9, left, back 3, left -> (4,3) facing
+  -- the charger.
+  C.face(1)
+  back(2)
+  C.turnLeft()
+  back(9)
+  C.turnLeft()
+  back(3)
+  C.turnLeft()
 
   return "stasis"
 end
