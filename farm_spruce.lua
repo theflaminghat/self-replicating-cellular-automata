@@ -4,8 +4,8 @@
 -- one -- if both moves are clear it hasn't grown, so leave; if either is blocked a
 -- trunk is there, so harvest). When grown, mine straight up until nothing more can
 -- be broken (pillaring up with reserve cobble if the tree out-climbs the hover
--- limit), mine back down, replant the sapling, wait for leaf-decay drops to fall,
--- then sweep the surrounding cells. Returns to stasis.
+-- limit), mine back down, and replant the sapling. Returns to stasis. Collecting
+-- the leaf-decay drops is done separately by farm_spruce_sweep.
 local C = require("common")
 
 local robot = C.robot
@@ -112,11 +112,8 @@ local function farm_spruce()
     robot.place()
   end
 
-  -- Wait for leaf-decay drops (saplings, sticks, apples) to fall before sweeping.
-  os.sleep(30)
-
-  C.sweepAround(C.SPRUCE_X, C.SPRUCE_Z, C.SPRUCE_Y)
-
+  -- Collecting the leaf-decay drops is a SEPARATE state (farm_spruce_sweep), run
+  -- later so the drops have time to fall; this state only harvests and replants.
   C.followPath(C.SPRUCE_RETURN_PATH)
   C.face(2)
 

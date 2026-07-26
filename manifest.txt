@@ -21,6 +21,7 @@ build_robot.lua
 take_robot.lua
 dispatch.lua
 farm_spruce.lua
+farm_spruce_sweep.lua
 farm_sugarcane.lua
 farm_cactus.lua
 
@@ -34,9 +35,11 @@ diag_parts_order.lua
 test_autocraft_build.lua
 test_build_robot.lua
 test_crafting.lua
+test_crusher.lua
 test_dispatch.lua
 test_farm_cactus.lua
 test_farm_spruce.lua
+test_farm_spruce_sweep.lua
 test_farm_sugarcane.lua
 test_fill_buckets.lua
 test_fill_generators.lua

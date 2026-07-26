@@ -25,6 +25,7 @@ local states = {
   returning       = require("returning"),
   stasis          = require("stasis"),
   farm_spruce     = require("farm_spruce"),
+  farm_spruce_sweep = require("farm_spruce_sweep"),
   farm_sugarcane  = require("farm_sugarcane"),
   farm_cactus     = require("farm_cactus"),
   crafting        = require("crafting"),
@@ -423,6 +424,7 @@ WEAVE = {
   "farm_spruce",
   "farm_sugarcane",
   "farm_cactus",
+  "farm_spruce_sweep",   -- collect the spruce drops after the other farms (leaves decay meanwhile)
   "inventory",
   crushStep,
   furnaceTakeStep,
