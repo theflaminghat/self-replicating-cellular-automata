@@ -1531,26 +1531,77 @@ end
 -- per the layout) out of the tracked chest and into the robot's inventory, up to
 -- each item's target. Items the robot already carries count toward the target, so
 -- a retried dispatch doesn't over-draw. Starts and ends at stasis.
+--
+-- All-or-nothing: a first pass verifies the chest (plus whatever the robot already
+-- carries from an interrupted, retried dispatch) covers the WHOLE payload before a
+-- second pass commits any pull. Pulling a partial payload would strand cobble/coal
+-- in the low inventory slots -- which overlap the crafting grid (slots 1,2,3,...) --
+-- and send an under-supplied offspring, so if any material is short we take nothing,
+-- record what's missing in C.lastMaterialsMissing, and return false. Returns true
+-- only when the full payload is now carried.
 function C.takeBuildMaterialsFromChest()
   C.gotoChestFromStasis()
   local size = inv.getInventorySize(sides.front)
-  if size then
-    for _, t in ipairs(C.buildMaterialTotals()) do
+  local ready = true
+  local missing = {}
+  if not size then
+    ready = false
+  else
+    local totals = C.buildMaterialTotals()
+    -- Pass 1: count-only. Is chest + already-held enough for every material?
+    for _, t in ipairs(totals) do
+      local avail = C.heldCount(t.spec)
       for cs = 1, size do
-        local held = C.heldCount(t.spec)
-        if held >= t.count then break end
+        if avail >= t.count then break end
         local st = inv.getStackInSlot(sides.front, cs)
         if st and C.matchesSpec(st, t.spec) and st.size and st.size > 0 then
-          local dest = C.freeSlot()
-          if dest then
-            robot.select(dest)
-            inv.suckFromSlot(sides.front, cs, math.min(t.count - held, st.size))
+          avail = avail + st.size
+        end
+      end
+      if avail < t.count then
+        ready = false
+        missing[#missing + 1] =
+          { item = t.spec.label or t.spec.name, need = t.count, have = avail }
+      end
+    end
+    -- Pass 2: commit the pull only when the whole payload is available.
+    if ready then
+      for _, t in ipairs(totals) do
+        for cs = 1, size do
+          local held = C.heldCount(t.spec)
+          if held >= t.count then break end
+          local st = inv.getStackInSlot(sides.front, cs)
+          if st and C.matchesSpec(st, t.spec) and st.size and st.size > 0 then
+            local dest = C.freeSlot()
+            if dest then
+              robot.select(dest)
+              inv.suckFromSlot(sides.front, cs, math.min(t.count - held, st.size))
+            end
           end
         end
       end
     end
   end
   C.gotoStasisFromChest()
+  C.lastMaterialsMissing = missing
+  return ready
+end
+
+-- First internal slot holding a collected offspring robot (an "opencomputers:robot"
+-- item, or any stack whose label contains "Robot"), or nil. Same detection
+-- placeOffspringRobot uses, so a "there's a robot to place" check here agrees with
+-- what dispatch can actually place.
+function C.offspringRobotSlot()
+  for s = 1, (C.INVENTORY_SIZE or 32) do
+    local ok, st = pcall(inv.getStackInInternalSlot, s)
+    if ok and st and st.size and st.size > 0 then
+      if st.name == "opencomputers:robot"
+          or (st.label and string.find(st.label, "Robot", 1, true)) then
+        return s
+      end
+    end
+  end
+  return nil
 end
 
 -- Scripted furnace-area movement. These are literal step sequences (not

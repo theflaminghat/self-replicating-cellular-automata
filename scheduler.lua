@@ -342,10 +342,29 @@ local function dispatchStep()
     return
   end
 
-  -- Load the offspring's build materials out of the tracked chest before sending
-  -- it. Idempotent: items already carried count toward the target, so a retried
-  -- dispatch (after a low-battery bail) doesn't over-draw.
-  C.takeBuildMaterialsFromChest()
+  -- Robot gate: only dispatch when the offspring we're supposed to send is actually
+  -- in inventory. A stale pendingDispatch (e.g. replication state inherited by a
+  -- fresh offspring, or a flag set before assembly finished) would otherwise run the
+  -- whole computer-programming dance -- including its 24s of os.sleep -- with no
+  -- robot to place. That's the "robot stalls at the computer doing nothing". No
+  -- robot present means nothing to dispatch, so clear the stale flag and let
+  -- buildStep assemble the next one.
+  if not C.offspringRobotSlot() then
+    pendingDispatch = false
+    saveReplication()
+    return
+  end
+
+  -- Materials gate: don't dispatch until the offspring's ENTIRE build payload is in
+  -- the chest. takeBuildMaterialsFromChest is all-or-nothing -- it pulls only when
+  -- everything is available and returns false otherwise -- so a not-yet-crafted
+  -- machine (e.g. the coal generator) leaves the offspring waiting in inventory
+  -- rather than loading a partial cobble/coal payload into the crafting-grid slots
+  -- and shipping an under-supplied offspring. Keep pendingDispatch set; the weave
+  -- crafts/gathers the rest and the dispatch retries next pass.
+  if not C.takeBuildMaterialsFromChest() then
+    return
+  end
 
   -- Only clear the pending flag if the dispatch actually finished (not a low
   -- battery bail), so an interrupted dispatch is retried.

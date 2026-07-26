@@ -13,7 +13,7 @@ local batteryLevel = C.batteryLevel
 
 -- Seconds to let leaf-decay drops fall before sweeping. Guards the case where this
 -- runs right after the harvest; harmless (just a minimum) when it runs later.
-local DROP_WAIT = 30
+local DROP_WAIT = 0
 
 local TRUNK_X, TRUNK_Z = C.SPRUCE_X, C.SPRUCE_Z   -- 4, 12 (the sapling cell)
 

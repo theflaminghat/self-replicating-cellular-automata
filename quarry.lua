@@ -192,11 +192,20 @@ local function sweepQuarryLayer(patch, resumeXi, resumeZi)
   return true
 end
 
+-- Position the robot in the shaft at exactly targetY, whether it needs to go DOWN
+-- (resuming from the surface) or UP (it just probed to bedrock, or is climbing from
+-- one band to the next through the already-open shaft). Only moving down -- as it
+-- did before -- left the robot a layer too low and it swept/skipped at the wrong
+-- height, which looked like switching layers before finishing the current one.
 local function descendShaftTo(targetY)
   gotoXZ(C.MINE_START_X, C.MINE_START_Z)
   while pos.y > targetY do
     if robot.detectDown() then robot.swingDown() end
     if not moveDown() then break end
+  end
+  while pos.y < targetY do
+    if robot.detectUp() then robot.swingUp() end
+    if not moveUp() then break end
   end
 end
 

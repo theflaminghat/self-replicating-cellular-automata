@@ -114,12 +114,23 @@ local function depositTrackedChest()
   end
 end
 
--- Any non-reserve slot still holding items? (Reserve cobble stays for pillaring.)
+-- A collected offspring robot waiting to be dispatched. It must NOT be dumped into
+-- a chest -- dispatchStep holds it in inventory (sometimes across several weave
+-- passes while the last build materials are crafted), and depositing it here would
+-- strand the finished offspring in the overflow. Same detection dispatch uses.
+local function isOffspringRobot(stack)
+  return stack and stack.size and stack.size > 0
+    and (stack.name == "opencomputers:robot"
+         or (stack.label and string.find(stack.label, "Robot", 1, true)))
+end
+
+-- Any non-reserve slot still holding storable items? (Reserve cobble stays for
+-- pillaring; a waiting offspring robot is held for dispatch, not storable.)
 local function hasStorableItems()
   for i = 1, INVENTORY_SIZE do
     if not RESERVE[i] then
       local stack = inv.getStackInInternalSlot(i)
-      if stack and stack.size and stack.size > 0 then
+      if stack and stack.size and stack.size > 0 and not isOffspringRobot(stack) then
         return true
       end
     end
@@ -136,7 +147,7 @@ local function dumpAllHere()
   for i = 1, INVENTORY_SIZE do
     if not RESERVE[i] then
       local stack = inv.getStackInInternalSlot(i)
-      if stack and stack.size and stack.size > 0 then
+      if stack and stack.size and stack.size > 0 and not isOffspringRobot(stack) then
         robot.select(i)
         robot.drop()
       end
