@@ -573,60 +573,74 @@ end
 -- runs. Raw materials (no recipe) are omitted -- they are gathered, not made.
 function C.productionPlan(name, count)
   local labelMap = labelToRecipeKey()
-  local steps = {}
-  local needed = {}
-  local emitted = {}
 
   local function recipeFor(n)
     local key = (C.RECIPES and C.RECIPES[n] and n) or (labelMap and labelMap[n])
     return key and C.RECIPES[key] or nil
   end
 
-  local function visit(item, qty, stack)
+  -- Topological order via post-order DFS: an item is appended AFTER all its
+  -- ingredients. Accumulating needed[] in REVERSE (parents first) then guarantees an
+  -- item's demand is fully summed from EVERY parent before it charges its own
+  -- ingredients. So a multiply-used intermediate (the transistor, used by many chips)
+  -- charges its ingredients (paper) for all of its uses, not just the first -- the old
+  -- single-pass DFS recursed on an item's first visit only and under-counted paper.
+  local topo = {}
+  local seen = {}
+  local function collect(item, stack)
     local recipe = recipeFor(item)
-    if not recipe then return end       -- raw material
-    if stack[item] then return end      -- cycle guard
-    needed[item] = (needed[item] or 0) + qty
-    if emitted[item] then return end
-
-    local yield = recipe.yield or 1
-    local crafts = math.ceil(qty / yield)
-
+    if not recipe then return end          -- raw material: not a step
+    if stack[item] or seen[item] then return end
+    seen[item] = true
     stack[item] = true
     for i = 1, 9 do
       local g = recipe.grid and recipe.grid[i]
       if g then
         local ing = itemName(g)
-        if ing then visit(ing, crafts, stack) end
+        if ing then collect(ing, stack) end
       end
     end
     stack[item] = nil
+    topo[#topo + 1] = item
+  end
+  collect(name, {})
 
-    -- For a smelt OR crush step, record the item the machine actually CONSUMES (the
-    -- single grid ingredient type), not just the item produced. Callers feed the
-    -- input to the machine, not the result -- e.g. cobblestone, not the sand it
-    -- yields.
-    local machineInput
-    if recipe.smelt or recipe.crush then
-      for i = 1, 9 do
-        local g = recipe.grid and recipe.grid[i]
-        if g then machineInput = itemName(g); break end
+  -- Accumulate total needed[] parents-first (reverse of the topo order).
+  local needed = { [name] = count or 1 }
+  for i = #topo, 1, -1 do
+    local item = topo[i]
+    local recipe = recipeFor(item)
+    local qty = needed[item] or 0
+    if recipe and qty > 0 then
+      local crafts = math.ceil(qty / (recipe.yield or 1))
+      for ing, per in pairs(recipeIngredients(recipe)) do
+        needed[ing] = (needed[ing] or 0) + crafts * per
       end
     end
-
-    emitted[item] = true
-    steps[#steps + 1] = {
-      action = recipe.smelt and "smelt" or (recipe.crush and "crush") or "craft",
-      name = item,
-      count = qty,
-      input = machineInput,
-    }
   end
 
-  visit(name, count or 1, {})
-
-  for _, s in ipairs(steps) do
-    s.count = needed[s.name] or s.count
+  -- Emit steps deepest-first (topo order) with the final totals. For a smelt OR crush
+  -- step, record the item the machine actually CONSUMES (the single grid ingredient),
+  -- since callers feed the input, not the result (cobblestone, not the sand it yields).
+  local steps = {}
+  for _, item in ipairs(topo) do
+    local recipe = recipeFor(item)
+    local qty = needed[item] or 0
+    if recipe and qty > 0 then
+      local machineInput
+      if recipe.smelt or recipe.crush then
+        for i = 1, 9 do
+          local g = recipe.grid and recipe.grid[i]
+          if g then machineInput = itemName(g); break end
+        end
+      end
+      steps[#steps + 1] = {
+        action = recipe.smelt and "smelt" or (recipe.crush and "crush") or "craft",
+        name = item,
+        count = qty,
+        input = machineInput,
+      }
+    end
   end
   return steps
 end
@@ -870,10 +884,21 @@ C.TRACKED_CHESTS = {
 }
 C.TRACKED_CHEST = C.TRACKED_CHESTS[1]
 
--- Is (z, level) one of the target chests? Used by the overflow logic to skip them.
+-- Is (z, level) one of the target chests?
 function C.isTrackedChestCell(z, level)
   for _, c in ipairs(C.TRACKED_CHESTS) do
     if c.z == z and c.y == level then return true end
+  end
+  return false
+end
+
+-- Is column `z` the target-chest column? The overflow logic skips the WHOLE column
+-- (not just the target levels), so mined junk (foreign ores, etc.) never lands in
+-- the same stack as the tracked resources -- the levels above the target chests are
+-- reserved, kept clear rather than used as overflow.
+function C.isTrackedColumn(z)
+  for _, c in ipairs(C.TRACKED_CHESTS) do
+    if c.z == z then return true end
   end
   return false
 end
