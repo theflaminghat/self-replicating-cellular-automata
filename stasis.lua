@@ -22,6 +22,13 @@ local function toggleCharger()
 end
 
 local function stasis()
+  -- The charge spot (4,3) sits right beside the (4,4) mine shaft. `returning` leaves
+  -- allowHole=false so other states steer clear of the hole, but THIS approach passes
+  -- right by it -- with hole-avoidance on, the robot does a detour dance around the
+  -- shaft (turn to go around, get blocked, turn back). Allow hole passage for the
+  -- approach, then restore the previous setting.
+  local prevAllowHole = C.allowHole
+  C.allowHole = true
   while pos.y < C.TRAVEL_Y do
     if not moveUp() then break end
   end
@@ -32,6 +39,7 @@ local function stasis()
   while pos.y < C.STASIS_Y do
     if not moveUp() then break end
   end
+  C.allowHole = prevAllowHole
   C.face(2)  -- face the charger (and the lever above it)
 
   -- Top up the generators that power the charger BEFORE drawing on them. The robot

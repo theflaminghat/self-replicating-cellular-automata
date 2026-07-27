@@ -40,12 +40,14 @@ return function(C)
                nil,                    { label = "Iron Ingot" }, nil },
     },
     ["minecraft:stone_button"] = {
+      result = { label = "Button" },
       yield = 1,
       grid = { { label = "Stone" }, nil, nil,
                nil, nil, nil,
                nil, nil, nil },
     },
     ["minecraft:lever"] = {
+      result = { label = "Lever" },
       yield = 1,
       grid = { { label = "Stick" },       nil, nil,
                "minecraft:cobblestone", nil, nil,
@@ -59,6 +61,7 @@ return function(C)
                nil, nil, nil },
     },
     ["minecraft:diamond_pickaxe"] = {
+      result = { label = "Diamond Pickaxe" },
       yield = 1,
       grid = { { label = "Diamond" }, { label = "Diamond" }, { label = "Diamond" },
                nil,                 { label = "Stick" },   nil,
@@ -333,7 +336,7 @@ return function(C)
 
     ["oc:machine_block"] = {
       result = { label = "Machine Block" },
-      yield = 1,
+      yield = 4,
       grid = { { label = "Iron Ingot" }, { label = "Redstone" },  { label = "Iron Ingot" },
                { label = "Redstone" },   { label = "Spruce Chest" }, { label = "Redstone" },
                { label = "Iron Ingot" }, { label = "Redstone" },  { label = "Iron Ingot" } },

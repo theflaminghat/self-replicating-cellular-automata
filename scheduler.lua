@@ -41,7 +41,7 @@ local states = {
 -- Ores to smelt, each with the fuel to use.
 -- Fuel used for every furnace job. The list of what to smelt is derived from the
 -- smelt recipes (C.smeltables), not hardcoded here.
-local SMELT_FUEL = "minecraft:coal"
+local SMELT_FUEL = "Coal"
 
 local PICKAXE = "minecraft:iron_pickaxe"
 local PICKAXE_LABEL = "Iron Pickaxe"
@@ -114,11 +114,11 @@ local function furnaceAddStep()
   -- and stone already baked into finished buttons.
   local builds = C.buildsNeeded()
   local stoneDemand = C.smeltInputNeed("minecraft:cobblestone") * builds
-  local stoneConsumers = C.smeltOutputConsumers("minecraft:stone", "Stone")
+  local stoneConsumers = C.smeltOutputConsumers("Stone", "Stone")
 
   local items = {}
   for _, s in ipairs(smeltables) do items[#items + 1] = s.input end
-  items[#items + 1] = "minecraft:stone"          -- output, to gauge raw stone on hand
+  items[#items + 1] = "Stone"          -- output, to gauge raw stone on hand
   for _, c in ipairs(stoneConsumers) do items[#items + 1] = c.key end
   local counts = C.readChestCounts(items)
 
@@ -132,8 +132,8 @@ local function furnaceAddStep()
   -- crafted into buttons it's "gone" from the stone count -- so also credit the
   -- stone embodied in finished buttons, or the furnace would re-smelt after the
   -- buttons are already made. Both are what the user saw as an extra stone job.
-  local stoneOnHand = (counts["minecraft:stone"] or 0)
-                    + C.heldCount(C.specFor("minecraft:stone"))
+  local stoneOnHand = (counts["Stone"] or 0)
+                    + C.heldCount(C.specFor("Stone"))
   for _, c in ipairs(stoneConsumers) do
     stoneOnHand = stoneOnHand
       + ((counts[c.key] or 0) + C.heldCount(C.specFor(c.key))) * c.per
@@ -269,14 +269,14 @@ local function crushStep()
 
   C.takeFromHopper()
 
-  local counts = C.readChestCounts({ "minecraft:sand", "minecraft:cobblestone" })
+  local counts = C.readChestCounts({ "Sand", "minecraft:cobblestone" })
   local sandTarget, cobbleTarget = 0, 0
   for _, r in ipairs(C.TRACKED_RESOURCES or {}) do
-    if r.name == "minecraft:sand" then sandTarget = r.target or 0 end
+    if r.name == "Sand" then sandTarget = r.target or 0 end
     if r.name == "minecraft:cobblestone" then cobbleTarget = r.target or 0 end
   end
 
-  local sandHave = counts["minecraft:sand"] or 0
+  local sandHave = counts["Sand"] or 0
   local cobbleHave = counts["minecraft:cobblestone"] or 0
   if sandHave < sandTarget and cobbleHave >= cobbleTarget + C.CRUSHER_BATCH_IN then
     C.addToCrusher(C.CRUSHER_BATCH_IN)

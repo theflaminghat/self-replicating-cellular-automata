@@ -224,7 +224,7 @@ end
 C.BUILD_BOM = {
   blocks = {
     ["minecraft:cobblestone"]   = 151,  -- 143 floor + 8 type marker (offspring mines its own reserve)
-    ["minecraft:dirt"]          = 1,
+    ["Dirt"]                    = 1,
     ["td:leadstone_fluxduct"]   = 5,
     ["aa:coal_generator"]       = 2,
     ["oc:case3"]                = 1,
@@ -897,6 +897,9 @@ C.buildLabelSet()
 -- Spruce Sapling has no recipe (it's farmed), so it isn't picked up from the
 -- recipes, but it must be matched by display label -- its item id didn't match.
 C.LABELS["Spruce Sapling"] = true
+-- Dirt is a mined block used only as a dispatch-layout item (no recipe), so it
+-- isn't picked up from the recipes; register its label so it matches by label too.
+C.LABELS["Dirt"] = true
 
 -- Turn a name (item id or label string) into a match spec.
 function C.specFor(name)
@@ -1006,21 +1009,21 @@ end
 
 -- C.SLOTS key -> item spec + count for the machines/farm blocks.
 local SLOT_ITEM = {
-  dirt           = { name = "minecraft:dirt",           count = 1 },
+  dirt           = { label = "Dirt",                    count = 1 },
   coal_generator = { label = "Coal Generator",          count = 2 },
   flux_duct      = { label = "Leadstone Fluxduct",      count = 5 },
   case3          = { label = "Computer Case (Tier 3)",  count = 1 },
   assembler      = { label = "Electronics Assembler",   count = 1 },
-  hopper         = { name = "minecraft:hopper",         count = 1 },
+  hopper         = { label = "Hopper",                  count = 1 },
   furnace        = { label = "Furnace",                 count = 1 },
-  sand           = { name = "minecraft:sand",           count = 8 },
+  sand           = { label = "Sand",                    count = 8 },
   chest          = { label = "Spruce Chest",            count = 36 },  -- 6 stacks x 6 high
-  stone_button   = { name = "minecraft:stone_button",   count = 1 },
+  stone_button   = { label = "Button",                  count = 1 },
   crusher        = { label = "Crusher",                 count = 1 },
   charger        = { label = "Charger",                 count = 1 },
-  lever          = { name = "minecraft:lever",          count = 1 },
+  lever          = { label = "Lever",                   count = 1 },
   cactus         = { label = "Cactus",                  count = 1 },
-  sugarcane      = { name = "minecraft:reeds",          count = 7 },
+  sugarcane      = { label = "Sugar Canes",             count = 7 },
   spruce_sapling = { label = "Spruce Sapling",          count = 6 },
 }
 
@@ -1028,8 +1031,8 @@ C.BUILD_LAYOUT = {
   { slot = 1, name = "minecraft:cobblestone", count = 64 },  -- floor (143 total)
   { slot = 2, name = "minecraft:cobblestone", count = 64 },
   { slot = 3, name = "minecraft:cobblestone", count = 15 },
-  { slot = 22, name = "minecraft:coal", count = 64 },        -- starting fuel
-  { slot = C.TOOL_SLOT, name = "minecraft:diamond_pickaxe", count = 1 },  -- mining tool
+  { slot = 22, label = "Coal", count = 64 },        -- starting fuel
+  { slot = C.TOOL_SLOT, label = "Diamond Pickaxe", count = 1 },  -- mining tool
 }
 for key, item in pairs(SLOT_ITEM) do
   C.BUILD_LAYOUT[#C.BUILD_LAYOUT + 1] =
@@ -2004,7 +2007,7 @@ function C.takeFromHopper()
   if size then
     for slot = 1, size do
       local ok, st = pcall(inv.getStackInSlot, sides.front, slot)
-      if ok and st and st.name == "minecraft:sand" and st.size and st.size > 0 then
+      if ok and st and st.label == "Sand" and st.size and st.size > 0 then
         local dest = C.freeSlot()
         if not dest then break end
         robot.select(dest)
