@@ -238,10 +238,10 @@ C.BUILD_BOM = {
     ["minecraft:chest"]         = 36,  -- 6 chest stacks x 6 high (CHEST_PLACEMENTS)
     ["minecraft:sand"]          = 8,
     ["minecraft:bucket"]        = 2,
-    ["minecraft:coal"]          = 64,  -- starting generator/furnace fuel
+    ["Coal"]                    = 64,  -- starting generator/furnace fuel
     ["minecraft:diamond_pickaxe"] = 1,  -- the offspring's mining tool
     ["Cactus"]                  = 1,
-    ["minecraft:reeds"]         = 7,  -- sugarcane
+    ["Sugar Canes"]             = 7,  -- sugarcane
     ["Spruce Sapling"]          = 6,  -- 1 planted + 5 spare (matched by label)
   },
   -- One offspring robot: the ROBOT_PARTS list (with counts) assembled in the
@@ -485,7 +485,7 @@ function C.scaleTrackedResources()
     end
   end
   ensureAtLeast("Spruce Sapling", 64)
-  ensureAtLeast("minecraft:coal", 64)
+  ensureAtLeast("Coal", 64)
 
   C.TRACKED_RESOURCES = tracked
   return tracked
@@ -855,7 +855,7 @@ C.STASIS_Z = 3
 -- (fuel) are kept; the build materials ride through the overflow chests.
 C.TRACKED_RESOURCES = {
   { name = "Spruce Sapling",  min = 64, target = 64 },
-  { name = "minecraft:coal",  min = 64, target = 64 },
+  { name = "Coal", min = 64, target = 64 },
 }
 
 require("recipes")(C)
