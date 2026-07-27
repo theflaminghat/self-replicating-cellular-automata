@@ -517,14 +517,26 @@ local function adjustTracked(name, delta)
   end
 end
 
--- When `count` of `name` is crafted: remove that item's base materials from the
--- tracked resources (they were consumed) and add the crafted item itself as a
--- tracked resource (it now needs to be kept). Mutates C.TRACKED_RESOURCES.
+-- When `count` of `name` is crafted: remove the DIRECT ingredients it consumed from
+-- the tracked resources and add the crafted item itself (it now needs to be kept).
+-- Mutates C.TRACKED_RESOURCES.
+--
+-- Direct ingredients, NOT the fully-expanded base materials: each intermediate is
+-- tracked in turn as it's crafted (planks added when made, then consumed when the
+-- chest is made). Charging a chest all the way back to logs would double-count the
+-- logs -- once for the planks, again for the chest that used them -- draining the
+-- log target to zero and sending logs the robot still needs (e.g. for sticks) to
+-- the overflow instead of keeping them.
 function C.onItemCrafted(name, count)
   count = count or 1
-  local consumed = C.baseMaterialsOf(name, count)
-  for baseName, baseCount in pairs(consumed) do
-    adjustTracked(baseName, -baseCount)
+  local labelMap = labelToRecipeKey()
+  local key = recipeKeyFor(name, labelMap)
+  local recipe = key and C.RECIPES[key] or nil
+  if recipe then
+    local crafts = math.ceil(count / (recipe.yield or 1))
+    for ing, per in pairs(recipeIngredients(recipe)) do
+      adjustTracked(ing, -per * crafts)
+    end
   end
   adjustTracked(name, count)
 end
