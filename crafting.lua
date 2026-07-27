@@ -519,6 +519,13 @@ local function crafting_state(jobs)
   -- so jobs that are already satisfied don't each re-scan all 64 slots.
   refreshInvSnap()
 
+  -- The chest index is a module-level cache that survives between crafting_state
+  -- calls. A stale copy from an earlier weave cycle wouldn't include items the
+  -- inventory step has deposited since (finished furnaces, chests, ...), so have()
+  -- would read 0 and re-craft a fresh batch every cycle. Drop it so the first
+  -- count/pull this run reads the tracked chest's CURRENT contents.
+  invalidateChestIndex()
+
   C.lastCraftReport = {}
   for _, job in ipairs(jobs) do
     if batteryLevel() < 0.25 then

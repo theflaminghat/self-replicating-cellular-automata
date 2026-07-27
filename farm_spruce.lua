@@ -85,7 +85,10 @@ local function farm_spruce()
   local over = up and C.moveForward()    -- (4,2,12) if also clear
   if up and over then
     -- Not grown yet (both moves cleared, at 4,2,12) -- leave and come back later.
-    -- Return to stasis: forward 3, left, down, forward 9, left, forward 3, right.
+    -- Stepping up-and-over left the robot facing +X, PAST the sapling, so turn around
+    -- first to face back toward base before retracing the route.
+    -- Return to stasis: turn around, forward 3, left, down, forward 9, left, forward 3, right.
+    C.turnAround()
     for _ = 1, 3 do if not C.moveForward() then break end end
     C.turnLeft()
     C.moveDown()

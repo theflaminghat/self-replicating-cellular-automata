@@ -158,7 +158,9 @@ local function furnaceAddStep()
           -- A spec (id or { label = ... }) so furnace_add pulls the input from the
           -- chest by whichever key actually identifies it.
           item = C.specFor(s.input),
-          fuel = SMELT_FUEL,
+          -- specFor so a label fuel ("Coal") matches by label; a bare string would
+          -- be treated as an item id and never match the live coal (minecraft:coal).
+          fuel = C.specFor(SMELT_FUEL),
           amount = amount,
           fuelAmount = fuelNeed,
         }
