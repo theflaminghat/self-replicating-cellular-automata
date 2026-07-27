@@ -135,8 +135,10 @@ local function furnaceAddStep()
   local stoneOnHand = (counts["Stone"] or 0)
                     + C.heldCount(C.specFor("Stone"))
   for _, c in ipairs(stoneConsumers) do
-    stoneOnHand = stoneOnHand
-      + ((counts[c.key] or 0) + C.heldCount(C.specFor(c.key))) * c.per
+    -- (made / yield) * per: a consumer's yield outputs share one craft's `per`
+    -- stone, so divide by yield (harmless at yield 1, correct if it's ever higher).
+    local made = (counts[c.key] or 0) + C.heldCount(C.specFor(c.key))
+    stoneOnHand = stoneOnHand + (made / (c.yield or 1)) * c.per
   end
 
   local jobs = {}

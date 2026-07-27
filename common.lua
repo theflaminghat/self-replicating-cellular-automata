@@ -689,7 +689,9 @@ function C.smeltOutputConsumers(outputKey, outputLabel)
           end
         end
       end
-      if per > 0 then consumers[#consumers + 1] = { key = key, per = per } end
+      if per > 0 then
+        consumers[#consumers + 1] = { key = key, per = per, yield = recipe.yield or 1 }
+      end
     end
   end
   return consumers
@@ -711,7 +713,9 @@ function C.itemConsumers(ingredientName)
     if per > 0 then
       local ident = (type(recipe.result) == "table"
                      and (recipe.result.label or recipe.result.name)) or key
-      consumers[#consumers + 1] = { name = ident, per = per }
+      -- yield: one craft consumes `per` of the ingredient but produces `yield`
+      -- output items, so each output item embodies only per/yield of it.
+      consumers[#consumers + 1] = { name = ident, per = per, yield = recipe.yield or 1 }
     end
   end
   return consumers

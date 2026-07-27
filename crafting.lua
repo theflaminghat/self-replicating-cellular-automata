@@ -174,7 +174,11 @@ local function embodiedCount(name, seen)
   for _, c in ipairs(C.itemConsumers(name)) do
     local spec = C.specFor(c.name)
     local made = countInInventory(spec) + chestCountOf(spec) + embodiedCount(c.name, seen)
-    total = total + made * c.per
+    -- `made` output items came from made/yield crafts, each consuming `per` of
+    -- `name`. So the amount embodied is (made / yield) * per -- dividing by the
+    -- consumer's yield, or a high-yield consumer (transistor: 1 paper -> 8) would
+    -- over-count the embodied ingredient (8x here) and stall crafting of it.
+    total = total + (made / (c.yield or 1)) * c.per
   end
   return total
 end
