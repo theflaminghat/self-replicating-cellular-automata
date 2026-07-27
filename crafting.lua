@@ -111,18 +111,31 @@ end
 
 local chestIndex = nil
 
+-- Move to a given target-chest level (the 3 target chests share one access column,
+-- reached by moving up/down).
+local function goToChestLevel(level)
+  while pos.y < level do if not moveUp() then break end end
+  while pos.y > level do if not moveDown() then break end end
+end
+
+-- Index all 3 target chests, tagging each entry with the level it lives at so pulls
+-- and drops can navigate back to it. Ends at the home (bottom) level.
 local function buildChestIndex()
   chestIndex = {}
-  local size = inv.getInventorySize(sides.front)
-  if not size then
-    return false
-  end
-  for s = 1, size do
-    local st = inv.getStackInSlot(sides.front, s)
-    if st and st.name and st.size and st.size > 0 then
-      chestIndex[#chestIndex + 1] = { slot = s, stack = st, size = st.size }
+  for _, cell in ipairs(C.TRACKED_CHESTS) do
+    goToChestLevel(cell.y)
+    local size = inv.getInventorySize(sides.front)
+    if size then
+      for s = 1, size do
+        local st = inv.getStackInSlot(sides.front, s)
+        if st and st.name and st.size and st.size > 0 then
+          chestIndex[#chestIndex + 1] =
+            { level = cell.y, slot = s, stack = st, size = st.size }
+        end
+      end
     end
   end
+  goToChestLevel(C.TRACKED_CHEST.y)
   return true
 end
 
@@ -171,6 +184,7 @@ local function pullFromChest(item, count, intoSlot)
   for _, e in ipairs(chestEntries()) do
     if got >= count then break end
     if e.size > 0 and stackMatches(e.stack, item) then
+      goToChestLevel(e.level or C.TRACKED_CHEST.y)   -- the chest this stack lives in
       local take = math.min(count - got, e.size)
       robot.select(intoSlot)
       if inv.suckFromSlot(sides.front, e.slot, take) then
@@ -182,18 +196,28 @@ local function pullFromChest(item, count, intoSlot)
       end
     end
   end
+  goToChestLevel(C.TRACKED_CHEST.y)   -- back home
   return got
 end
 
+-- Drop the slot's contents into the target chests, spilling to the next one when a
+-- chest fills. Returns true only if the slot ended up empty (fully stored).
 local function dropSlotIntoChest(slot)
   local st = stackAt(slot)
   if not (st and st.size and st.size > 0) then
     return true
   end
-  robot.select(slot)
-  local ok = robot.drop()
+  for _, cell in ipairs(C.TRACKED_CHESTS) do
+    local cur = inv.getStackInInternalSlot(slot)
+    if not (cur and cur.size and cur.size > 0) then break end   -- emptied
+    goToChestLevel(cell.y)
+    robot.select(slot)
+    robot.drop()
+  end
+  goToChestLevel(C.TRACKED_CHEST.y)
   invalidateChestIndex()
-  return ok
+  local final = inv.getStackInInternalSlot(slot)
+  return not (final and final.size and final.size > 0)
 end
 
 local function isGridSlot(slot)

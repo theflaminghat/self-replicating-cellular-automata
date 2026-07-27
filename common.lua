@@ -856,7 +856,23 @@ C.CHEST_PLACEMENTS = {
   { x = 0, z = 7 },
 }
 
-C.TRACKED_CHEST = { x = 0, y = 1, z = 0 }
+-- The "target chest" is actually a stack of 3 chests in the z=0 column (levels
+-- 1-3). They share one access cell; the robot moves up/down between levels to reach
+-- each. C.TRACKED_CHEST stays the bottom/home cell (navigation anchor + back-compat).
+C.TRACKED_CHESTS = {
+  { x = 0, y = 1, z = 0 },
+  { x = 0, y = 2, z = 0 },
+  { x = 0, y = 3, z = 0 },
+}
+C.TRACKED_CHEST = C.TRACKED_CHESTS[1]
+
+-- Is (z, level) one of the target chests? Used by the overflow logic to skip them.
+function C.isTrackedChestCell(z, level)
+  for _, c in ipairs(C.TRACKED_CHESTS) do
+    if c.z == z and c.y == level then return true end
+  end
+  return false
+end
 
 C.STASIS_X = 4
 C.STASIS_Y = 1
@@ -1627,47 +1643,60 @@ end
 -- only when the full payload is now carried.
 function C.takeBuildMaterialsFromChest()
   C.gotoChestFromStasis()
-  local size = inv.getInventorySize(sides.front)
+  local totals = C.buildMaterialTotals()
   local ready = true
   local missing = {}
-  if not size then
-    ready = false
-  else
-    local totals = C.buildMaterialTotals()
-    -- Pass 1: count-only. Is chest + already-held enough for every material?
-    for _, t in ipairs(totals) do
-      local avail = C.heldCount(t.spec)
+
+  -- Pass 1: count-only, across all 3 target chests plus what the robot already
+  -- carries. Is the WHOLE payload available?
+  local avail = {}
+  for ti = 1, #totals do avail[ti] = C.heldCount(totals[ti].spec) end
+  C.forEachTrackedChest(function()
+    local size = inv.getInventorySize(sides.front)
+    if size then
       for cs = 1, size do
-        if avail >= t.count then break end
         local st = inv.getStackInSlot(sides.front, cs)
-        if st and C.matchesSpec(st, t.spec) and st.size and st.size > 0 then
-          avail = avail + st.size
-        end
-      end
-      if avail < t.count then
-        ready = false
-        missing[#missing + 1] =
-          { item = t.spec.label or t.spec.name, need = t.count, have = avail }
-      end
-    end
-    -- Pass 2: commit the pull only when the whole payload is available.
-    if ready then
-      for _, t in ipairs(totals) do
-        for cs = 1, size do
-          local held = C.heldCount(t.spec)
-          if held >= t.count then break end
-          local st = inv.getStackInSlot(sides.front, cs)
-          if st and C.matchesSpec(st, t.spec) and st.size and st.size > 0 then
-            local dest = C.freeSlot()
-            if dest then
-              robot.select(dest)
-              inv.suckFromSlot(sides.front, cs, math.min(t.count - held, st.size))
+        if st and st.size and st.size > 0 then
+          for ti, t in ipairs(totals) do
+            if avail[ti] < t.count and C.matchesSpec(st, t.spec) then
+              avail[ti] = avail[ti] + st.size
             end
           end
         end
       end
     end
+  end)
+  for ti, t in ipairs(totals) do
+    if avail[ti] < t.count then
+      ready = false
+      missing[#missing + 1] =
+        { item = t.spec.label or t.spec.name, need = t.count, have = avail[ti] }
+    end
   end
+
+  -- Pass 2: commit the pull only when the whole payload is available.
+  if ready then
+    C.forEachTrackedChest(function()
+      local size = inv.getInventorySize(sides.front)
+      if size then
+        for _, t in ipairs(totals) do
+          for cs = 1, size do
+            local held = C.heldCount(t.spec)
+            if held >= t.count then break end
+            local st = inv.getStackInSlot(sides.front, cs)
+            if st and C.matchesSpec(st, t.spec) and st.size and st.size > 0 then
+              local dest = C.freeSlot()
+              if dest then
+                robot.select(dest)
+                inv.suckFromSlot(sides.front, cs, math.min(t.count - held, st.size))
+              end
+            end
+          end
+        end
+      end
+    end)
+  end
+
   C.gotoStasisFromChest()
   C.lastMaterialsMissing = missing
   return ready
@@ -1746,8 +1775,22 @@ function C.gotoStasisFromChest()
   C.turnRight()
 end
 
--- Go to the tracked chest, count each requested item, and return to stasis.
--- `items` is a list of item name strings. Returns a table name -> count.
+-- The target chest is a stack of C.TRACKED_CHESTS (z=0 column, levels 1-3). With the
+-- robot already at the tracked-chest access cell (facing the chest), run fn() with it
+-- facing each one in turn -- moving up/down between levels -- then return to the
+-- bottom (home) level so the scripted return-to-stasis lines up. fn works on the
+-- chest in front.
+function C.forEachTrackedChest(fn)
+  for _, cell in ipairs(C.TRACKED_CHESTS) do
+    while pos.y < cell.y do if not C.moveUp() then break end end
+    while pos.y > cell.y do if not C.moveDown() then break end end
+    fn(cell)
+  end
+  while pos.y > C.TRACKED_CHEST.y do if not C.moveDown() then break end end
+end
+
+-- Go to the tracked chest, count each requested item across all 3 target chests, and
+-- return to stasis. `items` is a list of item name strings. Returns name -> count.
 function C.readChestCounts(items)
   local counts = {}
   local specs = {}
@@ -1757,39 +1800,42 @@ function C.readChestCounts(items)
   end
 
   C.gotoChestFromStasis()
-  local ok, size = pcall(inv.getInventorySize, sides.front)
-  if ok and size then
-    for s = 1, size do
-      local okS, st = pcall(inv.getStackInSlot, sides.front, s)
-      if okS and st and st.size then
-        -- Match each requested item by id or label, so smelt inputs given only
-        -- by label (Cactus, Raw Circuit Board, Lead Ore) are counted too.
-        for name, spec in pairs(specs) do
-          if C.matchesSpec(st, spec) then
-            counts[name] = counts[name] + st.size
+  C.forEachTrackedChest(function()
+    local ok, size = pcall(inv.getInventorySize, sides.front)
+    if ok and size then
+      for s = 1, size do
+        local okS, st = pcall(inv.getStackInSlot, sides.front, s)
+        if okS and st and st.size then
+          -- Match each requested item by id or label, so smelt inputs given only
+          -- by label (Cactus, Raw Circuit Board, Lead Ore) are counted too.
+          for name, spec in pairs(specs) do
+            if C.matchesSpec(st, spec) then
+              counts[name] = counts[name] + st.size
+            end
           end
         end
       end
     end
-  end
+  end)
   C.gotoStasisFromChest()
   return counts
 end
 
--- Read EVERY item count from the tracked chest (name -> count). Navigates to the
--- chest and back. Used by the autocrafter's materials pre-check.
+-- Read EVERY item count from the target chests (name -> count). Navigates and back.
 function C.readAllChestCounts()
   local counts = {}
   C.gotoChestFromStasis()
-  local ok, size = pcall(inv.getInventorySize, sides.front)
-  if ok and size then
-    for s = 1, size do
-      local okS, st = pcall(inv.getStackInSlot, sides.front, s)
-      if okS and st and st.name and st.size then
-        counts[st.name] = (counts[st.name] or 0) + st.size
+  C.forEachTrackedChest(function()
+    local ok, size = pcall(inv.getInventorySize, sides.front)
+    if ok and size then
+      for s = 1, size do
+        local okS, st = pcall(inv.getStackInSlot, sides.front, s)
+        if okS and st and st.name and st.size then
+          counts[st.name] = (counts[st.name] or 0) + st.size
+        end
       end
     end
-  end
+  end)
   C.gotoStasisFromChest()
   return counts
 end
@@ -1885,7 +1931,11 @@ function C.takeFromTrackedChest(match)
     if not C.moveUp() then break end
   end
   C.face(3)
-  return C.suckMatchFromFront(match)
+  local got = false
+  C.forEachTrackedChest(function()
+    if not got and C.suckMatchFromFront(match) then got = true end
+  end)
+  return got
 end
 
 function C.takeFromTrackedChestLow(match)
@@ -1897,7 +1947,11 @@ function C.takeFromTrackedChestLow(match)
   end
   C.gotoXZNoDig(C.TRACKED_CHEST.x + 1, C.TRACKED_CHEST.z)
   C.face(3)
-  return C.suckMatchFromFront(match)
+  local got = false
+  C.forEachTrackedChest(function()
+    if not got and C.suckMatchFromFront(match) then got = true end
+  end)
+  return got
 end
 
 function C.selectMatching(match)

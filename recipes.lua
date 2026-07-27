@@ -383,7 +383,7 @@ return function(C)
     },
 
     ["oc:control_unit"] = {
-      result = { label = "Control Unit" },
+      result = { label = "Control Unit (CU)" },
       yield = 1,
       grid = { { label = "Gold Nugget" }, { label = "Redstone" },      { label = "Gold Nugget" },
                { label = "Transistor" },  { label = "Clock" },       { label = "Transistor" },

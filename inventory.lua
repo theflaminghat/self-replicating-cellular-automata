@@ -66,62 +66,65 @@ end
 -- The chest's current contents are counted ONCE up front, per tracked entry, and
 -- a running stored-count is kept as items drop instead of re-scanning.
 local function depositTrackedChest()
-  gotoChestCell(C.TRACKED_CHEST.z, C.TRACKED_CHEST.y)
-
   local tracked = C.TRACKED_RESOURCES
   local specs = {}
-  local stored = {}
+  local stored = {}          -- cumulative across all 3 target chests
   for ti, r in ipairs(tracked) do
     specs[ti] = C.specFor(r.name)
     stored[ti] = 0
   end
 
-  -- Count what's already in the chest, attributing each stack to the first
-  -- tracked entry it matches.
-  local size = inv.getInventorySize(sides.front)
-  if size then
-    for slot = 1, size do
-      local st = inv.getStackInSlot(sides.front, slot)
-      if st and st.size then
-        for ti = 1, #tracked do
-          if C.matchesSpec(st, specs[ti]) then
-            stored[ti] = stored[ti] + st.size
-            break
-          end
-        end
-      end
-    end
-  end
+  gotoChestCell(C.TRACKED_CHEST.z, C.TRACKED_CHEST.y)  -- tracked column, level 1
 
-  for i = 1, INVENTORY_SIZE do
-    if not RESERVE[i] then
-      local stack = inv.getStackInInternalSlot(i)
-      if stack and stack.name and stack.size and stack.size > 0 then
-        for ti = 1, #tracked do
-          if C.matchesSpec(stack, specs[ti]) then
-            local room = (tracked[ti].target or 0) - stored[ti]
-            if room > 0 then
-              local before = stack.size
-              robot.select(i)
-              robot.drop(math.min(room, before))
-              -- drop() can move fewer than asked when the chest fills up. Count what
-              -- ACTUALLY left the slot so `stored` -- and the keep budget derived
-              -- from it -- reflect the chest's real contents, not the request.
-              local after = inv.getStackInInternalSlot(i)
-              stored[ti] = stored[ti] + (before - ((after and after.size) or 0))
+  -- Visit each of the 3 target chests. At each: count its existing contents into the
+  -- cumulative `stored`, then deposit from inventory up to each resource's remaining
+  -- target. A chest that fills takes what it can (drop() moves fewer); the rest rides
+  -- along to the next chest on the next iteration.
+  C.forEachTrackedChest(function()
+    local size = inv.getInventorySize(sides.front)
+    if size then
+      for slot = 1, size do
+        local st = inv.getStackInSlot(sides.front, slot)
+        if st and st.size then
+          for ti = 1, #tracked do
+            if C.matchesSpec(st, specs[ti]) then
+              stored[ti] = stored[ti] + st.size
+              break
             end
-            break
           end
         end
       end
     end
-  end
+
+    for i = 1, INVENTORY_SIZE do
+      if not RESERVE[i] then
+        local stack = inv.getStackInInternalSlot(i)
+        if stack and stack.name and stack.size and stack.size > 0 then
+          for ti = 1, #tracked do
+            if C.matchesSpec(stack, specs[ti]) then
+              local room = (tracked[ti].target or 0) - stored[ti]
+              if room > 0 then
+                local before = stack.size
+                robot.select(i)
+                robot.drop(math.min(room, before))
+                -- drop() can move fewer than asked when the chest fills up. Count what
+                -- ACTUALLY left the slot so `stored` -- and the keep budget below --
+                -- reflect the chests' real contents, not the request.
+                local after = inv.getStackInInternalSlot(i)
+                stored[ti] = stored[ti] + (before - ((after and after.size) or 0))
+              end
+              break
+            end
+          end
+        end
+      end
+    end
+  end)
 
   -- Keep budget: for each tracked resource, how much to hold back in inventory
-  -- because the chest couldn't take the full target (target minus what actually
-  -- landed in the chest). A resource only overflows what it has BEYOND this, so
-  -- materials still needed for replication ride along in inventory instead of
-  -- being stranded in the overflow wall.
+  -- because the chests couldn't take the full target (target minus what actually
+  -- landed). A resource only overflows what it has BEYOND this, so materials still
+  -- needed for replication ride along in inventory instead of the overflow wall.
   local keep = {}
   for ti = 1, #tracked do
     keep[ti] = math.max(0, (tracked[ti].target or 0) - stored[ti])
@@ -213,8 +216,7 @@ local function depositOverflow(specs, keep)
   for _, z in ipairs(CHEST_ZS) do
     for level = 1, CHEST_LEVELS do
       if not overflowable(specs, keep) then return end
-      local isTrackedCell =
-        (z == C.TRACKED_CHEST.z and level == C.TRACKED_CHEST.y)
+      local isTrackedCell = C.isTrackedChestCell(z, level)
       if not isTrackedCell then
         gotoChestCell(z, level)
         dumpAllHere(specs, keep)
@@ -289,8 +291,7 @@ local function refillReserveFromOverflow()
 
   for _, z in ipairs(CHEST_ZS) do
     for level = 1, CHEST_LEVELS do
-      local isTrackedCell =
-        (z == C.TRACKED_CHEST.z and level == C.TRACKED_CHEST.y)
+      local isTrackedCell = C.isTrackedChestCell(z, level)
       if not isTrackedCell then
         gotoChestCell(z, level)
         if frontChestEmpty() then return end     -- hit an empty chest: stop
