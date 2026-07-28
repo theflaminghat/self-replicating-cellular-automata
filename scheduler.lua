@@ -280,7 +280,12 @@ local function crushStep()
     if r.name == "Sand" then sandTarget = r.target or 0 end
   end
 
-  local sandHave = counts["Sand"] or 0
+  -- The crusher's yield per batch isn't fixed, so don't assume 8 -- COUNT the real sand.
+  -- takeFromHopper just pulled the ground sand into the robot's inventory (it's shelved
+  -- into the chest by a later inventory step), so the chest count alone misses it. Add
+  -- the sand on hand to the chest total so the "have we ground enough?" test reflects
+  -- what was actually produced, not an assumed batch size.
+  local sandHave = (counts["Sand"] or 0) + C.heldCount(C.specFor("Sand"))
   local cobbleHave = counts["minecraft:cobblestone"] or 0
   if sandHave < sandTarget and cobbleHave >= C.CRUSHER_BATCH_IN then
     C.addToCrusher(C.CRUSHER_BATCH_IN)
@@ -476,14 +481,13 @@ WEAVE = {
   "farm_spruce",
   "farm_sugarcane",
   "farm_cactus",
-  "inventory",
   crushStep,
   furnaceTakeStep,
   furnaceAddStep,
   "farm_spruce_sweep",   -- collect the spruce drops AFTER furnace add (leaves have had
                          -- ample time to decay); skips itself if no tree was chopped
-  autocraftStep,
   "inventory",
+  autocraftStep,
   takeRobotStep,
   dispatchStep,
   "inventory",     -- clean up dispatch leftovers and refill the reserve used bridging

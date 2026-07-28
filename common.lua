@@ -320,28 +320,69 @@ local function recipeKeyFor(name, labelMap)
   return nil
 end
 
--- Expand `requirements` (name -> count) into base materials (name -> count).
--- `seen` guards against recipe cycles on the current dependency path.
-local function expandInto(base, requirements, seen, labelMap)
+-- Expand `requirements` (name -> count) into raw base materials (name -> count),
+-- MERGING each intermediate's total demand before rounding up to whole crafts.
+--
+-- A naive branch-by-branch expansion applies ceil(count / yield) SEPARATELY on every
+-- path that reaches a shared intermediate (e.g. paper -> sugar cane, reached through
+-- every transistor, itself reached through every chip). Those roundings compound and
+-- inflate the raw totals -- the base list then over-provisions materials (several
+-- stacks of sugar cane for what only needs a stack and a half of paper). Instead,
+-- collect craftable items in topological order and charge ingredients parents-first, so
+-- each intermediate rounds up ONCE against its fully-summed demand. This is the same
+-- accumulation C.productionPlan uses, so the farmed base materials and the crafted
+-- amounts finally agree.
+local function expandToBase(requirements, labelMap)
+  labelMap = labelMap or labelToRecipeKey()
+  local function recipeFor(n)
+    local key = recipeKeyFor(n, labelMap)
+    return key and C.RECIPES[key] or nil
+  end
+
+  -- Post-order DFS: append an item AFTER all its ingredients. `stack` breaks cycles on
+  -- the current path; `seen` keeps each item to a single topo slot.
+  local topo = {}
+  local seen = {}
+  local function collect(item, stack)
+    local recipe = recipeFor(item)
+    if not recipe then return end          -- raw material: not a craft step
+    if stack[item] or seen[item] then return end
+    seen[item] = true
+    stack[item] = true
+    for ing in pairs(recipeIngredients(recipe)) do
+      collect(ing, stack)
+    end
+    stack[item] = nil
+    topo[#topo + 1] = item
+  end
+
+  local needed = {}
   for name, count in pairs(requirements) do
-    if count > 0 then
-      local key = recipeKeyFor(name, labelMap)
-      local recipe = key and C.RECIPES[key] or nil
-      if not recipe or (seen and seen[key]) then
-        -- Base material (or a cycle we won't re-enter): accumulate as-is.
-        base[name] = (base[name] or 0) + count
-      else
-        local yield = recipe.yield or 1
-        local crafts = math.ceil(count / yield)
-        local perCraft = recipeIngredients(recipe)
-        local subReq = {}
-        for ing, per in pairs(perCraft) do
-          subReq[ing] = per * crafts
-        end
-        local nextSeen = { [key] = true }
-        if seen then for k, v in pairs(seen) do nextSeen[k] = v end end
-        expandInto(base, subReq, nextSeen, labelMap)
+    if count and count > 0 then
+      needed[name] = (needed[name] or 0) + count
+      collect(name, {})
+    end
+  end
+
+  -- Charge ingredients parents-first (reverse topo) so an intermediate's full demand is
+  -- summed from every parent before it rounds up and expands.
+  for i = #topo, 1, -1 do
+    local item = topo[i]
+    local recipe = recipeFor(item)
+    local qty = needed[item] or 0
+    if recipe and qty > 0 then
+      local crafts = math.ceil(qty / (recipe.yield or 1))
+      for ing, per in pairs(recipeIngredients(recipe)) do
+        needed[ing] = (needed[ing] or 0) + crafts * per
       end
+    end
+  end
+
+  -- Base materials = the summed demands that have no recipe (raw, gathered not crafted).
+  local base = {}
+  for name, qty in pairs(needed) do
+    if qty > 0 and not recipeFor(name) then
+      base[name] = qty
     end
   end
   return base
@@ -367,7 +408,7 @@ function C.baseMaterialsForBuild()
     addReq(itemName(part.item or part.label or part.name), part.count or 1)
   end
 
-  return expandInto({}, requirements, nil, labelToRecipeKey())
+  return expandToBase(requirements, labelToRecipeKey())
 end
 
 -- Number of builds this robot needs to make: one per offspring it sends.
@@ -420,7 +461,7 @@ end
 
 -- Expand a single item into its base materials (name -> count).
 function C.baseMaterialsOf(name, count)
-  return expandInto({}, { [name] = count or 1 }, nil, labelToRecipeKey())
+  return expandToBase({ [name] = count or 1 }, labelToRecipeKey())
 end
 
 -- Set C.TRACKED_RESOURCES to the base materials needed for all builds:
