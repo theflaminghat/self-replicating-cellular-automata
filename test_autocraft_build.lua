@@ -156,6 +156,26 @@ local function doCraft(step)
   end
 end
 
+-- Deposit everything the robot is carrying into the 3 target chests, spreading across
+-- them, so items are STORED in the chests between steps (the crafter and furnace read
+-- their inputs from there) instead of piling up in the robot's inventory. Skips the
+-- reserve slots. Starts and ends at stasis.
+local function storeInTargetChests()
+  C.gotoChestFromStasis()
+  C.forEachTrackedChest(function()
+    for i = 1, (C.INVENTORY_SIZE or 64) do
+      if not C.isReserveSlot(i) then
+        local st = C.inv.getStackInInternalSlot(i)
+        if st and st.size and st.size > 0 then
+          C.robot.select(i)
+          C.robot.drop()
+        end
+      end
+    end
+  end)
+  C.gotoStasisFromChest()
+end
+
 clear()
 print("EXECUTING PRODUCTION PLAN")
 print("--------------------------------")
@@ -172,6 +192,9 @@ for i, step in ipairs(plan) do
   else
     doCraft(step)
   end
+  -- Store what was just produced into the 3 target chests so the next step's inputs
+  -- are read from there and the inventory doesn't fill up mid-build.
+  storeInTargetChests()
   local madeSoFar = produced[step.name]
   print(string.format("  made: %s", madeSoFar and tostring(madeSoFar) or "0"))
   if failed[step.name] then

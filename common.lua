@@ -2058,23 +2058,29 @@ function C.addToCrusher(amount)
   amount = math.min(amount or C.CRUSHER_BATCH_IN, C.CRUSHER_BATCH_IN)
   local COBBLE = "minecraft:cobblestone"
 
-  -- Stasis -> chest: pull the cobblestone into one free slot.
+  -- Stasis -> chest: pull the cobblestone into one free slot. Span all 3 target
+  -- chests -- surplus cobble can sit in any of them, and reading only the front
+  -- (level 1) chest could find as little as 1, dropping a non-batch onto the crusher.
   C.gotoChestFromStasis()
   local dest = C.freeSlot()
   local pulled = 0
-  local size = C.facingFront()
-  if dest and size then
-    robot.select(dest)
-    for s = 1, size do
-      if pulled >= amount then break end
-      local ok, st = pcall(inv.getStackInSlot, sides.front, s)
-      if ok and st and st.name == COBBLE and st.size and st.size > 0 then
-        local take = math.min(amount - pulled, st.size)
-        if inv.suckFromSlot(sides.front, s, take) then
-          pulled = pulled + take
+  if dest then
+    C.forEachTrackedChest(function()
+      robot.select(dest)
+      local size = C.facingFront()
+      if size then
+        for s = 1, size do
+          if pulled >= amount then break end
+          local ok, st = pcall(inv.getStackInSlot, sides.front, s)
+          if ok and st and st.name == COBBLE and st.size and st.size > 0 then
+            local take = math.min(amount - pulled, st.size)
+            if inv.suckFromSlot(sides.front, s, take) then
+              pulled = pulled + take
+            end
+          end
         end
       end
-    end
+    end)
   end
 
   -- Chest -> directly above the crusher (5,3,2), drop the cobblestone down into it.
@@ -2091,9 +2097,11 @@ function C.addToCrusher(amount)
   return pulled
 end
 
--- Collect the sand the crusher ground into the hopper below it (5,1,2): stand
--- beside the hopper and suck all the sand out. Starts and ends at stasis. Returns
--- how many sand it took.
+-- Empty the hopper below the crusher (5,1,2): stand beside it and suck out
+-- EVERYTHING, not just sand -- cobble that passed through the crusher (or any other
+-- item) must be cleared too, or it accumulates and blocks the sand. The inventory
+-- step sorts whatever came out (sand + stray cobble) back to the right place. Starts
+-- and ends at stasis. Returns how many items it took.
 function C.takeFromHopper()
   C.gotoNoBreak(C.HOPPER.x, C.HOPPER.z + 1, C.HOPPER.y)  -- (5,1,3)
   C.face(2)                                              -- hopper (5,1,2) in front
@@ -2102,7 +2110,7 @@ function C.takeFromHopper()
   if size then
     for slot = 1, size do
       local ok, st = pcall(inv.getStackInSlot, sides.front, slot)
-      if ok and st and st.label == "Sand" and st.size and st.size > 0 then
+      if ok and st and st.size and st.size > 0 then
         local dest = C.freeSlot()
         if not dest then break end
         robot.select(dest)

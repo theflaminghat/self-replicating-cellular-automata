@@ -94,16 +94,20 @@ local function furnace_add(jobs)
     return "stasis"
   end
 
-  local needItem = amount - heldCount(job.item)
-  if needItem > 0 then
-    pullFromFront(job.item, needItem)
-  end
-  if job.fuel then
-    local needFuel = fuelWanted - heldCount(job.fuel)
-    if needFuel > 0 then
-      pullFromFront(job.fuel, needFuel)
+  -- Span all 3 target chests -- the ore/fuel can sit in any of them, and reading only
+  -- the front (level 1) chest could miss inputs stored higher up.
+  C.forEachTrackedChest(function()
+    local needItem = amount - heldCount(job.item)
+    if needItem > 0 then
+      pullFromFront(job.item, needItem)
     end
-  end
+    if job.fuel then
+      local needFuel = fuelWanted - heldCount(job.fuel)
+      if needFuel > 0 then
+        pullFromFront(job.fuel, needFuel)
+      end
+    end
+  end)
 
   -- Chest -> furnace base stand (2,1,3), then up one to (2,2,3), beside the raised
   -- furnace at (2,2,2).

@@ -215,7 +215,7 @@ return function(C)
       yield = 1,
       grid = { { label = "Spruce Wood Planks" }, { label = "Hopper" },           { label = "Spruce Wood Planks" },
                { label = "Dropper" },              { label = "Spruce Chest" },   { label = "Piston" },
-               { label = "Microchip (Tier 1)" }, { label = "Spruce Wood Planks" }, nil },
+               { label = "Spruce Wood Planks" }, { label = "Microchip (Tier 1)" }, { label = "Spruce Wood Planks" } },
     },
 
     ["oc:inventory_controller_upgrade"] = {

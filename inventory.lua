@@ -214,10 +214,9 @@ end
 -- overflowable() is false up front and the robot never walks the wall at all.
 local function depositOverflow(specs, keep)
   for _, z in ipairs(CHEST_ZS) do
-    for level = 1, CHEST_LEVELS do
-      if not overflowable(specs, keep) then return end
-      local isTrackedCell = C.isTrackedChestCell(z, level)
-      if not isTrackedCell then
+    if not C.isTrackedColumn(z) then          -- keep the whole target column clean
+      for level = 1, CHEST_LEVELS do
+        if not overflowable(specs, keep) then return end
         gotoChestCell(z, level)
         dumpAllHere(specs, keep)
       end
@@ -290,9 +289,8 @@ local function refillReserveFromOverflow()
   if C.reserveCobbleDeficit() <= 0 then return end
 
   for _, z in ipairs(CHEST_ZS) do
-    for level = 1, CHEST_LEVELS do
-      local isTrackedCell = C.isTrackedChestCell(z, level)
-      if not isTrackedCell then
+    if not C.isTrackedColumn(z) then          -- reserve refill comes from overflow only
+      for level = 1, CHEST_LEVELS do
         gotoChestCell(z, level)
         if frontChestEmpty() then return end     -- hit an empty chest: stop
         suckCobbleFromFront()
