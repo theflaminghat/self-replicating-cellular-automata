@@ -166,6 +166,20 @@ C.COMPASS_FACING = {
   NW = 2,
 }
 
+-- The world facing each offspring is physically PLACED at. A placed robot inherits the
+-- placer's facing, and each dispatch route ends bridging in a fixed direction, so an
+-- offspring's placement facing is determined by its compass type. building.lua reads
+-- this on boot to turn a freshly-placed offspring to a common EAST (+X) orientation, so
+-- every base is laid out identically regardless of which way the offspring was carried.
+-- MUST match the recBridgeBack facing of the matching route in dispatch.lua's
+-- placeOffspring: N bridges +Z(0), E +X(1), S -Z(2), W -X(3). Genesis is hand-placed by
+-- the player facing +X, so it needs no turn (the `or 1` fallback below).
+C.PLACEMENT_FACING = { N = 0, E = 1, S = 2, W = 3 }
+
+function C.placementFacing(robotType)
+  return C.PLACEMENT_FACING[robotType] or 1
+end
+
 -- Clockwise compass order for the four cardinals: N -> E -> S -> W -> N.
 -- "Right" of a cardinal is the next one clockwise.
 local CARDINAL_RIGHT = { N = "E", E = "S", S = "W", W = "N" }

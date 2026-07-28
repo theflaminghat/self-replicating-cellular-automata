@@ -15,10 +15,14 @@ local function building()
   -- gotoXZ detours around it and falls back to up-and-over routing.
   C.allowHole = true
 
-  -- The robot is assumed to already be standing at the build corner (0,1,0),
-  -- physically facing +X. Seed the tracked facing to +X (1) so the platform is
-  -- laid out into the +x,+z region without any start-of-build turn.
-  C.pos.x, C.pos.y, C.pos.z, C.pos.facing = 0, 1, 0, 1
+  -- The robot boots at its build corner (local origin 0,1,0) facing whatever direction
+  -- it was placed. A placed offspring inherits the placer's facing, which is fixed per
+  -- compass type (C.placementFacing); the Genesis robot is hand-placed facing +X. Seed
+  -- the tracked facing to that real placement facing, then physically turn to EAST (+X)
+  -- so every base -- whichever way the offspring was carried -- lays out identically into
+  -- the +x,+z region.
+  C.pos.x, C.pos.y, C.pos.z, C.pos.facing = 0, 1, 0, C.placementFacing(C.robotType)
+  C.face(1)   -- turn to face east; tracked facing is now +X (1)
 
   -- Serpentine floor sweep. The robot boots facing +X, so the inner loop walks
   -- along X (straight ahead) first, then steps to the next Z row. This avoids a

@@ -147,24 +147,6 @@ local function depositResources()
   end
 end
 
--- Place the offspring facing EAST (+X). A freshly placed robot inherits the parent's
--- facing, and building.lua boots every offspring assuming it is physically facing +X
--- (it seeds its whole build frame from that), so the parent must face +X when it places.
--- Turn east, step one cell east and floor it (footing for the offspring), step back onto
--- the stand still facing east, then place + hand over the payload into that east cell.
--- Restores the parent's prior facing so retrace(nav) still lines up on the way home.
-local function placeOffspringFacingEast()
-  local outFacing = pos.facing
-  C.face(1)                       -- east; the offspring inherits this facing
-  if moveForward() then           -- step east onto the offspring cell...
-    C.placeReserveCobbleDown()    -- ...floor it...
-    moveBack()                    -- ...and step back onto the stand, still facing east
-  end
-  placeOffspringRobot()           -- offspring lands in the east cell, facing east
-  depositResources()              -- payload -> the offspring in front (east)
-  C.face(outFacing)               -- restore facing so the retrace lines up
-end
-
 -- Retrace `nav` (recorded outbound moves) in reverse to return to stasis. Each
 -- forward becomes a back-step (facing is already restored by undoing later turns
 -- first), each turn its opposite, each ascent a descent.
@@ -220,7 +202,8 @@ local function placeOffspring(dir)
     return  -- unknown direction; nothing to do
   end
 
-  placeOffspringFacingEast()
+  placeOffspringRobot()
+  depositResources()
   retrace(nav)
   C.face(2)
 end
