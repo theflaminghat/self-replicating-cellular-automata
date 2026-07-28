@@ -230,8 +230,8 @@ return function(C)
       result = { label = "Solar Generator Upgrade" },
       yield = 1,
       grid = { { label = "Glass" },                { label = "Glass" },             { label = "Glass" },
-               { label = "Microchip (Tier 3)" }, { label = "Lapis Lazuli Block" }, { label = "Iron Ingot" },
-               { label = "Printed Circuit Board (PCB)" }, { label = "Iron Ingot" }, nil },
+               { label = "Microchip (Tier 3)" }, { label = "Lapis Lazuli Block" }, { label = "Microchip (Tier 3)" },
+               { label = "Iron Ingot" },{ label = "Printed Circuit Board (PCB)" }, { label = "Iron Ingot" }},
     },
 
     ["oc:crafting_upgrade"] = {
@@ -274,7 +274,7 @@ return function(C)
       result = { label = "Memory (Tier 2)" },
       yield = 1,
       grid = { nil,                          nil,                    nil,
-               { label = "Microchip (Tier 2)" }, { label = "Iron Ingot" }, { label = "Microchip (Tier 2)" },
+               { label = "Microchip (Tier 2)" }, { label = "Iron Nugget" }, { label = "Microchip (Tier 2)" },
                nil,                          { label = "Printed Circuit Board (PCB)" }, nil },
     },
 
@@ -290,7 +290,7 @@ return function(C)
       result = { label = "Central Processing Unit (CPU) (Tier 3)" },
       yield = 1,
       grid = { { label = "Diamond Nugget" },     { label = "Redstone" },           { label = "Diamond Nugget" },
-               { label = "Microchip (Tier 3)" }, { label = "Control Unit" },      { label = "Microchip (Tier 3)" },
+               { label = "Microchip (Tier 3)" }, { label = "Control Unit (CU)" },      { label = "Microchip (Tier 3)" },
                { label = "Diamond Nugget" },     { label = "Arithmetic Logic Unit (ALU)" }, { label = "Diamond Nugget" } },
     },
 
@@ -298,7 +298,7 @@ return function(C)
       result = { label = "Central Processing Unit (CPU) (Tier 2)" },
       yield = 1,
       grid = { { label = "Gold Nugget" },        { label = "Redstone" },           { label = "Gold Nugget" },
-               { label = "Microchip (Tier 2)" }, { label = "Control Unit" },      { label = "Microchip (Tier 2)" },
+               { label = "Microchip (Tier 2)" }, { label = "Control Unit (CU)" },      { label = "Microchip (Tier 2)" },
                { label = "Gold Nugget" },        { label = "Arithmetic Logic Unit (ALU)" }, { label = "Gold Nugget" } },
     },
 
