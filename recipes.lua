@@ -242,14 +242,6 @@ return function(C)
                { label = "Iron Ingot" },           { label = "Printed Circuit Board (PCB)" }, { label = "Iron Ingot" } },
     },
 
-    ["oc:generator_upgrade"] = {
-      result = { label = "Generator Upgrade" },
-      yield = 1,
-      grid = { { label = "Iron Ingot" },           nil,                           { label = "Iron Ingot" },
-               { label = "Microchip (Tier 1)" }, { label = "Crafting Table" },    { label = "Microchip (Tier 1)" },
-               { label = "Iron Ingot" },           { label = "Printed Circuit Board (PCB)" }, { label = "Iron Ingot" } },
-    },
-
     ["minecraft:lapis_block"] = {
       result = { label = "Lapis Lazuli Block" },
       yield = 1,

@@ -104,8 +104,7 @@ C.COMPUTER_PARTS = {
 -- rejects. `count` is how many of that item to load (default 1).
 C.ROBOT_PARTS = {
   { label = "Computer Case (Tier 3)" },
-  { label = "Generator Upgrade" },
-  { label = "Solar Generator Upgrade" },
+  { label = "Solar Generator Upgrade", count = 2 },
   { label = "Inventory Controller Upgrade" },
   { label = "Crafting Upgrade" },
   { label = "Central Processing Unit (CPU) (Tier 3)" },
@@ -2056,43 +2055,67 @@ end
 -- stasis. Returns how many cobblestone it actually loaded.
 function C.addToCrusher(amount)
   amount = math.min(amount or C.CRUSHER_BATCH_IN, C.CRUSHER_BATCH_IN)
-  local COBBLE = "minecraft:cobblestone"
+  local cobbleSpec = { name = "minecraft:cobblestone" }
 
-  -- Stasis -> chest: pull the cobblestone into one free slot. Span all 3 target
-  -- chests -- surplus cobble can sit in any of them, and reading only the front
-  -- (level 1) chest could find as little as 1, dropping a non-batch onto the crusher.
+  -- Stasis -> chest: pull the cobblestone into ONE slot. Span all 3 target chests
+  -- (surplus cobble can sit in any of them), and always suck into the slot that
+  -- already holds cobble so it consolidates into a single 64 stack instead of a
+  -- handful of partial stacks.
   C.gotoChestFromStasis()
-  local dest = C.freeSlot()
   local pulled = 0
-  if dest then
-    C.forEachTrackedChest(function()
-      robot.select(dest)
-      local size = C.facingFront()
-      if size then
-        for s = 1, size do
-          if pulled >= amount then break end
-          local ok, st = pcall(inv.getStackInSlot, sides.front, s)
-          if ok and st and st.name == COBBLE and st.size and st.size > 0 then
-            local take = math.min(amount - pulled, st.size)
-            if inv.suckFromSlot(sides.front, s, take) then
-              pulled = pulled + take
-            end
-          end
+  C.forEachTrackedChest(function()
+    local size = C.facingFront()
+    if not size then return end
+    for s = 1, size do
+      if pulled >= amount then break end
+      local ok, st = pcall(inv.getStackInSlot, sides.front, s)
+      if ok and st and st.name == cobbleSpec.name and st.size and st.size > 0 then
+        local take = math.min(amount - pulled, st.size)
+        local dest = C.findHeldSlot(cobbleSpec) or C.freeSlot()
+        if not dest then break end
+        robot.select(dest)
+        if inv.suckFromSlot(sides.front, s, take) then
+          pulled = pulled + take
         end
       end
-    end)
+    end
+  end)
+
+  -- Chest -> crusher. Reach the SAME floor-level side stand the hopper uses (5,1,3):
+  -- that cell is reliably reachable, whereas routing straight to the cell directly
+  -- above the raised crusher is not (the robot never arrives, the drop no-ops, and the
+  -- cobble ends up carried home and re-shelved). Then climb up-and-over and drop DOWN
+  -- into the crusher's top face -- exactly how the raised furnace is loaded.
+  C.gotoNoBreak(C.CRUSHER.x, C.HOPPER.z + 1, C.HOPPER.y)   -- (5,1,3)
+  local up1 = C.moveUp()                                    -- (5,2,3)
+  local up2 = up1 and C.moveUp()                            -- (5,3,3)
+  local over = false
+  if up2 then
+    C.face(2)                                               -- crusher column in front
+    over = C.moveForward()                                  -- (5,3,2), above the crusher
   end
 
-  -- Chest -> directly above the crusher (5,3,2), drop the cobblestone down into it.
-  C.gotoNoBreak(C.CRUSHER.x, C.CRUSHER.z, C.CRUSHER.y + 1)
-  if dest and pulled > 0 then
-    robot.select(dest)
-    pcall(robot.dropDown, pulled)
+  if over and pulled > 0 then
+    -- Robust drop: keep pushing the stack down until it is all in or the crusher's
+    -- input stops accepting it.
+    local moved = 0
+    while moved < pulled do
+      local from = C.findHeldSlot(cobbleSpec)
+      if not from then break end
+      robot.select(from)
+      local before = C.heldCount(cobbleSpec)
+      local ok, done = pcall(robot.dropDown, pulled - moved)
+      if not (ok and done) then break end
+      local just = before - C.heldCount(cobbleSpec)
+      if just <= 0 then break end
+      moved = moved + just
+    end
+    C.moveBack()                                            -- (5,3,3)
   end
 
-  -- Step off the crusher column (it would block a straight descent), then go home.
-  C.face(0)
-  C.moveForward()
+  if up2 then C.moveDown() end                              -- (5,2,3)
+  if up1 then C.moveDown() end                              -- (5,1,3)
+
   C.returnToStasis()
   return pulled
 end
