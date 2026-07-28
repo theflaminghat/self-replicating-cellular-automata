@@ -230,7 +230,17 @@ local function bailOut(reason)
   returnToShaft()
   climbToSurface()
   C.protectPillar = false
-  returnToStasis()
+  if reason == "stasis" then
+    -- Finished the quarry: no returning/stasis states run afterward, so park at the
+    -- charger ourselves.
+    returnToStasis()
+  end
+  -- On a low-battery bail (reason nil -> "returning") DON'T park here. The scheduler's
+  -- charge cycle runs returning.lua (which climbs out via the (4,4) shaft) and then
+  -- stasis.lua (which parks at the charger). Parking at stasis first would make
+  -- returning.lua walk the robot straight back onto the shaft to "climb out" -- the
+  -- turn-around-onto-the-hole-then-back dance. Leaving it at the surface shaft lets
+  -- returning.lua no-op and stasis.lua park cleanly.
   return reason or "returning"
 end
 
@@ -302,7 +312,10 @@ local function quarry()
       return bailOut()
     end
 
-    local workBottom = bottomY + 1
+    -- bottomY is the deepest REACHABLE layer (one block above bedrock), so mine it as
+    -- the bottom layer -- bedrock itself (bottomY-1) is the unbreakable floor. Starting
+    -- at bottomY+1 left that reachable layer above bedrock unmined as a platform.
+    local workBottom = bottomY
     -- Descend to the layer we were working on (workBottom + layers already done).
     local targetY = workBottom + (progress.layer - 1)
     descendShaftTo(targetY)

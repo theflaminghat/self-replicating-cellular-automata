@@ -2081,19 +2081,18 @@ function C.addToCrusher(amount)
     end
   end)
 
-  -- Chest -> crusher. Reach the SAME floor-level side stand the hopper uses (5,1,3):
-  -- that cell is reliably reachable, whereas routing straight to the cell directly
-  -- above the raised crusher is not (the robot never arrives, the drop no-ops, and the
-  -- cobble ends up carried home and re-shelved). Then climb up-and-over and drop DOWN
-  -- into the crusher's top face -- exactly how the raised furnace is loaded.
-  C.gotoNoBreak(C.CRUSHER.x, C.HOPPER.z + 1, C.HOPPER.y)   -- (5,1,3)
-  local up1 = C.moveUp()                                    -- (5,2,3)
-  local up2 = up1 and C.moveUp()                            -- (5,3,3)
-  local over = false
-  if up2 then
-    C.face(2)                                               -- crusher column in front
-    over = C.moveForward()                                  -- (5,3,2), above the crusher
-  end
+  -- Chest -> crusher, via the exact hand-scripted route (coordinate navigation could
+  -- not reliably reach the cell above the raised crusher). From the tracked-chest cell
+  -- (1,1,0) facing -X: right, forward 3, right, forward 4, right, up 2, forward -- which
+  -- lands directly above the crusher at (5,3,2) facing -Z, ready to drop DOWN into it.
+  C.turnRight()                                            -- face +Z
+  for _ = 1, 3 do C.moveForward() end                      -- (1,1,3)
+  C.turnRight()                                            -- face +X
+  for _ = 1, 4 do C.moveForward() end                      -- (5,1,3)
+  C.turnRight()                                            -- face -Z (crusher column ahead)
+  local up1 = C.moveUp()                                   -- (5,2,3)
+  local up2 = up1 and C.moveUp()                           -- (5,3,3)
+  local over = up2 and C.moveForward()                     -- (5,3,2), above the crusher
 
   if over and pulled > 0 then
     -- Robust drop: keep pushing the stack down until it is all in or the crusher's

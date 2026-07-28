@@ -476,11 +476,12 @@ WEAVE = {
   "farm_spruce",
   "farm_sugarcane",
   "farm_cactus",
-  "farm_spruce_sweep",   -- collect the spruce drops after the other farms (leaves decay meanwhile)
   "inventory",
   crushStep,
   furnaceTakeStep,
   furnaceAddStep,
+  "farm_spruce_sweep",   -- collect the spruce drops AFTER furnace add (leaves have had
+                         -- ample time to decay); skips itself if no tree was chopped
   autocraftStep,
   "inventory",
   takeRobotStep,

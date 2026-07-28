@@ -57,6 +57,11 @@ local function farm_spruce()
     return "returning"
   end
 
+  -- Whether this pass actually felled a tree. farm_spruce_sweep reads this and skips
+  -- the leaf-drop sweep entirely when the sapling hadn't grown (nothing was chopped,
+  -- so there are no drops to collect). Cleared now, set true just before harvesting.
+  C.choppedSpruce = false
+
   while pos.y > C.SPRUCE_Y do
     if not moveDown() then break end
   end
@@ -100,6 +105,10 @@ local function farm_spruce()
     return "stasis"
   end
   if up then C.moveDown() end            -- back down to the approach cell (3,1,12)
+
+  -- Grown into a tree (the up-and-over was blocked): harvesting now, so the sweep
+  -- should run this cycle.
+  C.choppedSpruce = true
 
   while robot.detect() do robot.swing() end
   C.moveForward()

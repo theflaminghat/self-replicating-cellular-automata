@@ -34,15 +34,18 @@ for _, s in ipairs(C.RESERVE_COBBLE_SLOTS or {}) do RESERVE[s] = true end
 
 -- Move from the current access cell to (ACCESS_X, level, z), ending facing -X.
 local function gotoChestCell(z, level)
-  -- Adjust Z first (robot faces -X; turn onto the z-axis, step, turn back).
+  -- Adjust Z first (robot faces -X; turn onto the z-axis, step, turn back). The
+  -- overflow chests run in the +Z direction (the "right" side that stays on the
+  -- platform); from -X that is a turnRight. Turning LEFT here faces -Z, walking the
+  -- robot off the platform -- the bug behind overflow deposits marching the wrong way.
   if pos.z < z then
-    C.turnLeft()                 -- -X -> +Z
+    C.turnRight()                -- -X -> +Z
     for _ = 1, (z - pos.z) do C.moveForward() end
-    C.turnRight()                -- +Z -> -X
+    C.turnLeft()                 -- +Z -> -X
   elseif pos.z > z then
-    C.turnRight()                -- -X -> -Z
+    C.turnLeft()                 -- -X -> -Z
     for _ = 1, (pos.z - z) do C.moveForward() end
-    C.turnLeft()                 -- -Z -> -X
+    C.turnRight()                -- -Z -> -X
   end
   -- Adjust level.
   while pos.y < level do
@@ -212,10 +215,15 @@ end
 -- nothing overflow-able remains (or the chests fill up). Skips the tracked chest
 -- cell. In steady state -- chest holding the full target, no untracked junk --
 -- overflowable() is false up front and the robot never walks the wall at all.
+-- Overflow chests are EVERY chest except the 3 tracked ones (z=0, levels 1-3),
+-- including the cells directly above the tracked chests (z=0, levels 4-6). Fill order
+-- is "up then right": walk each column bottom-to-top (level inner loop) before moving
+-- to the next column (the +Z / right direction). Starting at the tracked column means
+-- the levels above the tracked chests fill first, then it steps right to the next.
 local function depositOverflow(specs, keep)
   for _, z in ipairs(CHEST_ZS) do
-    if not C.isTrackedColumn(z) then          -- keep the whole target column clean
-      for level = 1, CHEST_LEVELS do
+    for level = 1, CHEST_LEVELS do
+      if not C.isTrackedChestCell(z, level) then   -- never dump into a tracked chest
         if not overflowable(specs, keep) then return end
         gotoChestCell(z, level)
         dumpAllHere(specs, keep)
@@ -289,8 +297,8 @@ local function refillReserveFromOverflow()
   if C.reserveCobbleDeficit() <= 0 then return end
 
   for _, z in ipairs(CHEST_ZS) do
-    if not C.isTrackedColumn(z) then          -- reserve refill comes from overflow only
-      for level = 1, CHEST_LEVELS do
+    for level = 1, CHEST_LEVELS do
+      if not C.isTrackedChestCell(z, level) then   -- reserve refill comes from overflow only
         gotoChestCell(z, level)
         if frontChestEmpty() then return end     -- hit an empty chest: stop
         suckCobbleFromFront()

@@ -52,6 +52,12 @@ local function farm_spruce_sweep()
     return "returning"
   end
 
+  -- Nothing was felled this cycle (the sapling hadn't grown), so there are no
+  -- leaf-decay drops to collect -- skip the whole sweep and stay parked.
+  if not C.choppedSpruce then
+    return "stasis"
+  end
+
   os.sleep(DROP_WAIT)
 
   -- Stasis -> in front of the sapling: right, forward 3, right, forward 9, right,
