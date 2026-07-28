@@ -263,10 +263,11 @@ local function autocraftStep()
   end
 end
 
--- Crushing: collect the sand the crusher has ground into the hopper, then -- if we
--- still need sand and have surplus cobblestone -- grind another 64-cobblestone
--- batch. Only cobblestone ABOVE its tracked target counts as surplus, so grinding
--- never eats into the cobble the build needs.
+-- Crushing: collect the sand the crusher ground into the hopper, then -- if the build
+-- still needs sand and there's at least a batch of cobblestone in the target chests --
+-- grind another 64-cobblestone batch. The SAND target caps how much ever gets ground
+-- (only the ~sandTarget*8 cobble the build's sand needs), and mining refills the
+-- cobble, so this converts just the sand's share and never runs the cobble to nothing.
 local function crushStep()
   -- Skip on low battery; the next state drives the charge cycle.
   if C.batteryLevel() < 0.25 then return end
@@ -274,15 +275,14 @@ local function crushStep()
   C.takeFromHopper()
 
   local counts = C.readChestCounts({ "Sand", "minecraft:cobblestone" })
-  local sandTarget, cobbleTarget = 0, 0
+  local sandTarget = 0
   for _, r in ipairs(C.TRACKED_RESOURCES or {}) do
     if r.name == "Sand" then sandTarget = r.target or 0 end
-    if r.name == "minecraft:cobblestone" then cobbleTarget = r.target or 0 end
   end
 
   local sandHave = counts["Sand"] or 0
   local cobbleHave = counts["minecraft:cobblestone"] or 0
-  if sandHave < sandTarget and cobbleHave >= cobbleTarget + C.CRUSHER_BATCH_IN then
+  if sandHave < sandTarget and cobbleHave >= C.CRUSHER_BATCH_IN then
     C.addToCrusher(C.CRUSHER_BATCH_IN)
   end
 end

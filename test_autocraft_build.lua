@@ -28,6 +28,11 @@ C.pos.x, C.pos.y, C.pos.z, C.pos.facing = C.STASIS_X, C.STASIS_Y, C.STASIS_Z, 2
 local PAGE_SECONDS = 12
 local SMELT_FUEL = "minecraft:coal"
 
+-- Set true to skip every smelt step (furnace_add/furnace_take). Useful when the
+-- smelt OUTPUTS (ingots, glass, stone, ...) are already pre-placed in the target
+-- chests and you only want to test the crafting half of the plan.
+local skip_furnacing = true
+
 local term
 pcall(function() term = require("term") end)
 local function clear()
@@ -187,7 +192,9 @@ for i, step in ipairs(plan) do
   clear()
   print(string.format("[%d/%d] %s %s x%d", i, #plan, step.action, step.name, step.count))
   print("--------------------------------")
-  if step.action == "smelt" then
+  if step.action == "smelt" and skip_furnacing then
+    print("  (skipped -- skip_furnacing)")
+  elseif step.action == "smelt" then
     doSmelt(step)
   else
     doCraft(step)
