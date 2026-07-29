@@ -165,8 +165,9 @@ local function furnaceAddStep()
 
     -- Smelt at most the OUTSTANDING demand (0 if the output isn't a build item), the
     -- available input, and one furnace load (64).
-    local amount = math.min(counts[s.input] or 0,
-                            math.max(0, g.demand - onHand), 64)
+    local inputHave = counts[s.input] or 0
+    local amount = math.min(inputHave, math.max(0, g.demand - onHand), 64)
+    g.inputHave, g.onHand, g.amount = inputHave, onHand, amount   -- for the diagnostic
     if amount > 0 then
       local fuelNeed = math.ceil(amount / 8)
       if coalLeft >= fuelNeed then
@@ -185,6 +186,29 @@ local function furnaceAddStep()
       -- else: not enough coal for this input right now -- skip, retry next pass.
     end
   end
+
+  -- Diagnostic: record WHY the furnace did or didn't load, so a "nothing smelting" state
+  -- can be explained (no coal / no input in the chest / every output already satisfied)
+  -- rather than guessed at. Stored on C for a diag script, and printed as one line.
+  C.lastFurnacePlan = { coal = counts[SMELT_FUEL] or 0, jobs = #jobs, rows = {} }
+  local blocked = {}
+  for _, g in ipairs(gauges) do
+    C.lastFurnacePlan.rows[#C.lastFurnacePlan.rows + 1] = {
+      output = g.s.output, input = g.s.input,
+      inputHave = g.inputHave or 0, demand = g.demand,
+      onHand = g.onHand or 0, amount = g.amount or 0,
+    }
+    -- Flag the inputs that ARE in the chest but got smelted 0 (demand already met) --
+    -- those are the ones a user watching "nothing happens" cares about.
+    if (g.inputHave or 0) > 0 and (g.amount or 0) == 0 then
+      blocked[#blocked + 1] = string.format("%s(in %d, need %g, have %g)",
+        tostring(g.s.output), g.inputHave, g.demand, g.onHand or 0)
+    end
+  end
+  local ok, msg = pcall(string.format,
+    "furnace: %d job(s), coal=%d%s", #jobs, C.lastFurnacePlan.coal,
+    (#blocked > 0) and (" | satisfied: " .. table.concat(blocked, ", ")) or "")
+  if ok then pcall(print, msg) end
 
   if #jobs == 0 then
     return  -- nothing worth smelting (or no coal to smelt it) this pass
