@@ -4,10 +4,10 @@
 --   1. Provisioning: clone this computer's boot drive, and copy its EEPROM BIOS, onto
 --      any freshly INSERTED filesystem / EEPROM -- how an offspring's drive + BIOS get
 --      set up.
---   2. Redstone power control: while a redstone card is present, keep the wake threshold
---      at 10 so a redstone signal >= 10 powers the computer on while it is off; and shut
---      the computer down as soon as it sees a redstone signal while running. With a
---      momentary (button) pulse this makes the redstone line a simple on/off toggle.
+--   2. Assembler + redstone power: while a redstone card is present, keep the wake
+--      threshold at 10 so a redstone signal >= 10 powers the computer on while it is off.
+--      When it then sees a redstone signal while running, it starts the electronics
+--      assembler (which runs on its own power) and shuts itself down.
 
 local component = require("component")
 local computer  = require("computer")
@@ -129,13 +129,32 @@ local function controller()
   end
 
   --------------------------------------------------------------------
+  -- ASSEMBLER
+  --------------------------------------------------------------------
+
+  -- Start the electronics assembler if one is attached. It runs on its own power once
+  -- started, so the computer is free to shut down immediately afterward.
+  local function tryAssemblerStart()
+    if component.isAvailable("assembler") then
+      local ok, err = pcall(function() component.assembler.start() end)
+      if ok then
+        print("Assembler started.")
+      else
+        print("Assembler start failed: " .. tostring(err))
+      end
+    else
+      print("No assembler available.")
+    end
+  end
+
+  --------------------------------------------------------------------
   -- MAIN LOOP
   --------------------------------------------------------------------
 
   print("Computer controller running.")
   print("Boot drive: " .. source.address)
   print("Source BIOS size: " .. #sourceBios .. " bytes")
-  print("Redstone: wake threshold " .. WAKE_THRESHOLD .. "; any redstone signal shuts it down.")
+  print("Redstone: wake threshold " .. WAKE_THRESHOLD .. "; a redstone signal starts the assembler, then powers off.")
   print("Insert EEPROM/drive to copy.")
   setRedstoneWake()
 
@@ -173,12 +192,14 @@ local function controller()
       if ctype == "filesystem" then knownFs[addr] = nil end
 
     elseif name == "redstone_changed" then
-      -- ev = { "redstone_changed", address, side, oldValue, newValue }. Any incoming
-      -- signal (on any side) while we're running is the "power off" cue -- shut down.
-      -- The wake threshold above turns us back on the next time redstone rises to 10.
+      -- ev = { "redstone_changed", address, side, oldValue, newValue }. An incoming
+      -- signal (on any side) while we're running means "do the job, then power off":
+      -- start the assembler (which then runs on its own power) and shut down. The wake
+      -- threshold above turns us back on the next time redstone rises to 10.
       local newValue = ev[5]
       if newValue and newValue > 0 then
-        print("Redstone signal detected -- shutting down.")
+        print("Redstone signal detected -- starting assembler, then shutting down.")
+        tryAssemblerStart()
         computer.shutdown()
       end
     end
