@@ -6,6 +6,7 @@ common.lua
 recipes.lua
 scheduler.lua
 robot.lua
+computer_controller.lua
 building.lua
 inventory.lua
 mining.lua
