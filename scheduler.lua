@@ -155,20 +155,38 @@ local function furnaceAddStep()
   local gauges, counts, builds = plan.gauges, plan.counts, plan.builds
   local coalLeft = plan.coal
 
+  -- Snapshot the robot's own inventory ONCE, then count from that in memory. C.heldCount
+  -- re-scans all 64 slots with a component call every time, and the loop below needs a
+  -- held count per smeltable output AND per consumer (~20+ lookups) -- calling heldCount
+  -- each time floods OpenComputers' per-tick component-call budget and leaves the robot
+  -- pausing at the charger for ~a minute between take and add. One scan fixes that.
+  local invStacks = {}
+  for slot = 1, (C.INVENTORY_SIZE or 64) do
+    local ok, st = pcall(C.inv.getStackInInternalSlot, slot)
+    if ok and st and st.size and st.size > 0 then invStacks[#invStacks + 1] = st end
+  end
+  local function heldOf(spec)
+    local total = 0
+    for _, st in ipairs(invStacks) do
+      if C.matchesSpec(st, spec) then total = total + (st.size or 0) end
+    end
+    return total
+  end
+
   local jobs = {}
   for _, g in ipairs(gauges) do
     local s = g.s
 
     -- Output already available toward the demand. Freshly smelted output was collected
     -- into INVENTORY by furnaceTakeStep just before this runs, so the (cached) chest count
-    -- alone would miss it -- add the live heldCount. And once the output is crafted into a
+    -- alone would miss it -- add the on-hand count. And once the output is crafted into a
     -- consumer it's "gone" from the loose count, so also credit the output embodied in
     -- finished consumers, or the furnace re-smelts after the parts are already made.
-    local onHand = (counts[s.output] or 0) + C.heldCount(C.specFor(s.output))
+    local onHand = (counts[s.output] or 0) + heldOf(C.specFor(s.output))
     for _, c in ipairs(g.consumers) do
       -- (made / yield) * per: each of a consumer's `yield` outputs shares one craft's
       -- `per` of the smelt output, so divide by yield (correct if it's ever > 1).
-      local made = (counts[c.key] or 0) + C.heldCount(C.specFor(c.key))
+      local made = (counts[c.key] or 0) + heldOf(C.specFor(c.key))
       onHand = onHand + (made / (c.yield or 1)) * c.per
     end
 
