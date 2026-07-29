@@ -189,26 +189,27 @@ local function furnaceAddStep()
 
   -- Diagnostic: record WHY the furnace did or didn't load, so a "nothing smelting" state
   -- can be explained (no coal / no input in the chest / every output already satisfied)
-  -- rather than guessed at. Stored on C for a diag script, and printed as one line.
+  -- rather than guessed at. Written to a file each pass -- `print` isn't visible in this
+  -- setup -- so `edit /home/furnace_plan.txt` (or read it) shows the latest decision.
   C.lastFurnacePlan = { coal = counts[SMELT_FUEL] or 0, jobs = #jobs, rows = {} }
-  local blocked = {}
+  local lines = { string.format("furnace plan: %d job(s), coal=%d, builds=%d",
+                                #jobs, counts[SMELT_FUEL] or 0, builds) }
   for _, g in ipairs(gauges) do
     C.lastFurnacePlan.rows[#C.lastFurnacePlan.rows + 1] = {
       output = g.s.output, input = g.s.input,
       inputHave = g.inputHave or 0, demand = g.demand,
       onHand = g.onHand or 0, amount = g.amount or 0,
     }
-    -- Flag the inputs that ARE in the chest but got smelted 0 (demand already met) --
-    -- those are the ones a user watching "nothing happens" cares about.
-    if (g.inputHave or 0) > 0 and (g.amount or 0) == 0 then
-      blocked[#blocked + 1] = string.format("%s(in %d, need %g, have %g)",
-        tostring(g.s.output), g.inputHave, g.demand, g.onHand or 0)
-    end
+    lines[#lines + 1] = string.format("  %-16s in(%s)=%d  demand=%g  onHand=%g  -> smelt %d",
+      tostring(g.s.output), tostring(g.s.input),
+      g.inputHave or 0, g.demand, g.onHand or 0, g.amount or 0)
   end
-  local ok, msg = pcall(string.format,
-    "furnace: %d job(s), coal=%d%s", #jobs, C.lastFurnacePlan.coal,
-    (#blocked > 0) and (" | satisfied: " .. table.concat(blocked, ", ")) or "")
-  if ok then pcall(print, msg) end
+  local body = table.concat(lines, "\n") .. "\n"
+  pcall(function()
+    local f = io.open("/home/furnace_plan.txt", "w")
+    if f then f:write(body); f:close() end
+  end)
+  pcall(print, lines[1])
 
   if #jobs == 0 then
     return  -- nothing worth smelting (or no coal to smelt it) this pass

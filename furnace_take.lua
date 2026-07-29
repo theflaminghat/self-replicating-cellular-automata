@@ -51,10 +51,17 @@ local function furnace_take()
     return "stasis"
   end
 
-  -- Wait for the batch to finish: while the input still has items to smelt, wait
-  -- POLL_SECONDS and check again. Stop at the cap so a stall doesn't hang forever.
+  -- Wait for the batch to finish: while the input still has items to smelt, wait and
+  -- check again. Stop EARLY if the input isn't shrinking between polls -- that means the
+  -- furnace isn't actually smelting (no fuel in it, or unpowered), so waiting out the
+  -- full cap would just stall the robot at the furnace. MAX_POLLS is the hard backstop.
+  local prevSize
   for _ = 1, MAX_POLLS do
-    if not inputStack() then break end
+    local st = inputStack()
+    if not st then break end                              -- input all smelted: done
+    local size = st.size or 0
+    if prevSize and size >= prevSize then break end       -- not shrinking: not smelting
+    prevSize = size
     os.sleep(POLL_SECONDS)
   end
 
