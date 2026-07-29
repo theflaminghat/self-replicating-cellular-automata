@@ -92,6 +92,14 @@ end
 -- Collect finished results from the furnace (take before add, so we clear the
 -- output before loading a new batch).
 local function furnaceTakeStep()
+  -- Skip the whole furnace sequence when there's no coal in the chest. With no fuel,
+  -- any input already sitting in the furnace can never finish smelting, so furnace_take
+  -- would poll it for the full ~30-minute timeout every cycle -- the robot looks stalled
+  -- at the charger instead of getting on with the weave. No coal -> nothing smelts ->
+  -- nothing to collect, so there's no point going to the furnace at all.
+  if (C.readChestCounts({ SMELT_FUEL })[SMELT_FUEL] or 0) <= 0 then
+    return
+  end
   states.furnace_take()
 end
 
