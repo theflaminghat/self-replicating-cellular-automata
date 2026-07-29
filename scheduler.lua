@@ -45,6 +45,8 @@ local SMELT_FUEL = "Coal"
 
 local PICKAXE = "minecraft:iron_pickaxe"
 local PICKAXE_LABEL = "Iron Pickaxe"
+local DIAMOND_PICKAXE = "minecraft:diamond_pickaxe"
+local DIAMOND_PICKAXE_LABEL = "Diamond Pickaxe"
 
 -- Set true when the robot is already built and parked at stasis: skips the one-time
 -- startup (building the base + initial mining) and goes straight to the main weave.
@@ -100,7 +102,10 @@ local function furnaceTakeStep()
   if (C.readChestCounts({ SMELT_FUEL })[SMELT_FUEL] or 0) <= 0 then
     return
   end
-  states.furnace_take()
+  -- No-wait: grab whatever the furnace has finished and move on. The weave lap gives the
+  -- furnace ample time to smelt before the next visit, so sitting here polling for the
+  -- current batch would just stall the robot for minutes between take and add.
+  states.furnace_take(true)
 end
 
 -- Read the chest and build furnace jobs for everything smeltable. The list comes
@@ -218,27 +223,38 @@ local function furnaceAddStep()
   states.furnace_add(jobs)
 end
 
--- Craft one iron pickaxe using the crafting state, then equip it. Ingots and
--- sticks are expected in the chest (ingots from smelting).
-local function craftAndEquipPickaxe()
-  states.crafting({ name = PICKAXE, amount = 1 })
-
-  -- Equip the freshly crafted pickaxe.
-  local slot
+-- Craft the first inventory pickaxe matching (name/label) and equip it. Returns true
+-- if one was found and equipped.
+local function equipPickaxe(name, label)
   for s = 1, (C.INVENTORY_SIZE or 32) do
     local ok, st = pcall(C.inv.getStackInInternalSlot, s)
-    if ok and st and st.size and st.size > 0 then
-      if st.name == PICKAXE or st.label == PICKAXE_LABEL then
-        slot = s
-        break
-      end
+    if ok and st and st.size and st.size > 0 and (st.name == name or st.label == label) then
+      C.robot.select(s)
+      pcall(C.inv.equip)
+      return true
     end
   end
-  if slot then
-    C.robot.select(slot)
-    pcall(C.inv.equip)
-  else
-    C.lastPickaxeError = "no iron pickaxe crafted (missing ingots?)"
+  return false
+end
+
+-- Craft a replacement pickaxe and equip it. Below world y = C.DIAMOND_BELOW_Y the quarry
+-- is in the deep layers, so make a DIAMOND pickaxe; iron is fine higher up. C.quarryWorldY
+-- is the world Y of the layer the quarry was on when the tool broke (the crafter itself
+-- runs at the surface). Ingots/sticks (iron) or diamonds/sticks (diamond) come from the
+-- chest. If a diamond one can't be made (no diamonds yet), fall back to iron so the
+-- quarry can still continue.
+local function craftAndEquipPickaxe()
+  local deep = (C.quarryWorldY or math.huge) < (C.DIAMOND_BELOW_Y or 0)
+  if deep then
+    states.crafting({ name = DIAMOND_PICKAXE, amount = 1 })
+    if equipPickaxe(DIAMOND_PICKAXE, DIAMOND_PICKAXE_LABEL) then return end
+    C.lastPickaxeError = "wanted a diamond pickaxe below y=" .. tostring(C.DIAMOND_BELOW_Y)
+      .. " but couldn't craft one (no diamonds?); falling back to iron"
+  end
+
+  states.crafting({ name = PICKAXE, amount = 1 })
+  if not equipPickaxe(PICKAXE, PICKAXE_LABEL) then
+    C.lastPickaxeError = "no pickaxe crafted (missing ingots/diamonds?)"
   end
 end
 

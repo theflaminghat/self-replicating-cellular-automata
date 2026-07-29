@@ -1328,6 +1328,21 @@ C.QUARRY_MIN_Z = 0
 C.QUARRY_MAX_Z = 31
 C.QUARRY_BAND = 8
 
+-- The quarry mines BOTTOM-UP from bedrock, and stops when it climbs to world y =
+-- C.QUARRY_CEILING_Y (the ceiling) instead of continuing all the way to the surface.
+-- The robot can't read its absolute Y (it dead-reckons from its start), so it calibrates
+-- off a known fact: the deepest reachable layer -- bedrock+1, what the bedrock probe
+-- lands on -- is world y = C.BEDROCK_LAYER_Y. The ceiling is then
+-- (QUARRY_CEILING_Y - BEDROCK_LAYER_Y) layers above the probed bottom. Leave the ceiling
+-- nil to quarry all the way up to the surface.
+C.QUARRY_CEILING_Y = 55
+C.BEDROCK_LAYER_Y = 2
+
+-- Below this world Y, the quarry mines with a DIAMOND pickaxe instead of an iron one
+-- (the deep, tougher/valuable layers). The quarry publishes its current mining depth in
+-- C.quarryWorldY, computed from the same bedrock calibration above.
+C.DIAMOND_BELOW_Y = 17
+
 C.TRAVEL_Y = C.CHEST_STACK_HEIGHT + 1
 
 C.FLOOR_HOLE_X = 4
@@ -1335,6 +1350,7 @@ C.FLOOR_HOLE_Z = 4
 
 C.pos = { x = 0, y = 0, z = 0, facing = 0 }
 C.shaftDepth = 0
+C.quarryWorldY = nil   -- world Y of the layer the quarry is currently mining (nil = idle)
 
 local pos = C.pos
 

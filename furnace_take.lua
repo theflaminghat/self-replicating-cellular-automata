@@ -27,7 +27,13 @@ local function inputStack()
   return nil
 end
 
-local function furnace_take()
+-- `noWait`: when true, collect whatever output is ready RIGHT NOW and leave -- don't sit
+-- polling for the current batch to finish. The weave passes this: the furnace has been
+-- smelting since the last add (a whole weave lap ago), so its output is ready, and any
+-- unfinished input is collected next lap. Waiting here would stall the robot for the
+-- full ~10-minute batch. Left false for the test/doSmelt path, which loads then collects
+-- immediately and needs the wait.
+local function furnace_take(noWait)
   if batteryLevel() < 0.25 then
     return "returning"
   end
@@ -55,14 +61,17 @@ local function furnace_take()
   -- check again. Stop EARLY if the input isn't shrinking between polls -- that means the
   -- furnace isn't actually smelting (no fuel in it, or unpowered), so waiting out the
   -- full cap would just stall the robot at the furnace. MAX_POLLS is the hard backstop.
-  local prevSize
-  for _ = 1, MAX_POLLS do
-    local st = inputStack()
-    if not st then break end                              -- input all smelted: done
-    local size = st.size or 0
-    if prevSize and size >= prevSize then break end       -- not shrinking: not smelting
-    prevSize = size
-    os.sleep(POLL_SECONDS)
+  -- Skipped entirely in noWait mode (the weave), which just grabs what's already done.
+  if not noWait then
+    local prevSize
+    for _ = 1, MAX_POLLS do
+      local st = inputStack()
+      if not st then break end                            -- input all smelted: done
+      local size = st.size or 0
+      if prevSize and size >= prevSize then break end     -- not shrinking: not smelting
+      prevSize = size
+      os.sleep(POLL_SECONDS)
+    end
   end
 
   -- Above the furnace (2,3,2) -> the gap below it (2,1,2), where the bottom face

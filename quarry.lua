@@ -278,7 +278,8 @@ local function quarry()
   -- Resume from remembered progress, or start a fresh quarry.
   if not progress.started then
     progress.started = true
-    -- Fresh quarry: measure the real bedrock depth once.
+    -- Fresh quarry: probe to bedrock once. The deepest reachable layer (bedrock+1) is the
+    -- FLOOR the robot mines bottom-up from, and it calibrates the depth.
     local bottom = probeBedrock()
     C.shaftDepth = C.MINE_START_Y - bottom
     progress.shaftDepth = C.shaftDepth
@@ -295,7 +296,7 @@ local function quarry()
       C.shaftDepth = progress.shaftDepth
     end
     if not progress.bandBottom then
-      -- No saved bottom (older/corrupt progress): measure it once now.
+      -- No saved bottom (older/corrupt progress): probe for it once now.
       local bottom = probeBedrock()
       progress.bandBottom = bottom
       C.shaftDepth = C.MINE_START_Y - bottom
@@ -304,23 +305,38 @@ local function quarry()
     end
   end
 
+  -- Bedrock+1 sits at local y (MINE_START_Y - shaftDepth) and is world C.BEDROCK_LAYER_Y,
+  -- so worldY(localY) = localY - bedrockLocal + BEDROCK_LAYER_Y. The quarry mines BOTTOM-UP
+  -- and stops at the CEILING -- the highest local layer whose world Y is
+  -- C.QUARRY_CEILING_Y (or just below the surface when no ceiling is set).
+  local bedrockLocal = C.MINE_START_Y - C.shaftDepth
+  local floorWorldY = C.BEDROCK_LAYER_Y or 0
+  local topLocalY
+  if C.QUARRY_CEILING_Y and C.BEDROCK_LAYER_Y then
+    topLocalY = bedrockLocal + (C.QUARRY_CEILING_Y - C.BEDROCK_LAYER_Y)
+    if topLocalY > C.MINE_START_Y - 1 then topLocalY = C.MINE_START_Y - 1 end
+    if topLocalY < bedrockLocal then topLocalY = bedrockLocal end
+  else
+    topLocalY = C.MINE_START_Y - 1
+  end
+
   local bottomY = progress.bandBottom
-  while bottomY < C.MINE_START_Y do
+  while bottomY <= topLocalY do
     if lowBattery() then
       progress.bandBottom = bottomY
       saveProgress()
       return bailOut()
     end
 
-    -- bottomY is the deepest REACHABLE layer (one block above bedrock), so mine it as
-    -- the bottom layer -- bedrock itself (bottomY-1) is the unbreakable floor. Starting
-    -- at bottomY+1 left that reachable layer above bedrock unmined as a platform.
+    -- The first band bottom is the quarry floor (bedrock+1); mine it as the bottom layer.
     local workBottom = bottomY
+    -- Cap this band's top layer at the ceiling so the bottom-up sweep never climbs past it.
+    local topLayer = math.min(C.QUARRY_BAND - 1, topLocalY - workBottom + 1)
     -- Descend to the layer we were working on (workBottom + layers already done).
     local targetY = workBottom + (progress.layer - 1)
     descendShaftTo(targetY)
 
-    for layer = progress.layer, C.QUARRY_BAND - 1 do
+    for layer = progress.layer, topLayer do
       if lowBattery() then
         progress.bandBottom = bottomY
         progress.layer = layer
@@ -328,6 +344,9 @@ local function quarry()
         return bailOut()
       end
       local isBottomLayer = (layer == 1)
+      -- Publish the current mining depth as a world Y so the pickaxe crafter can choose
+      -- diamond (below C.DIAMOND_BELOW_Y) vs iron. pos.y is this layer's local y here.
+      C.quarryWorldY = pos.y - (C.MINE_START_Y - C.shaftDepth) + floorWorldY
       local sweepResult = sweepQuarryLayer(isBottomLayer, progress.xi, progress.zi)
       if sweepResult == "craft_pickaxe" then
         progress.bandBottom = bottomY
@@ -351,7 +370,7 @@ local function quarry()
         return bailOut()
       end
       progress.xi, progress.zi = nil, nil
-      if layer < C.QUARRY_BAND - 1 then
+      if layer < topLayer then
         if robot.detectUp() then robot.swingUp() end
         if not moveUp() then break end
       end
