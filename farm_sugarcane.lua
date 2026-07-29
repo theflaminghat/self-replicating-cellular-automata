@@ -123,6 +123,13 @@ local function farm_sugarcane()
     return "returning"
   end
 
+  -- Stop once enough sugar cane for every remaining build has been gathered -- counting
+  -- cane already turned into paper (and paper into transistors, ...), not just the loose
+  -- stacks. Skips the whole trip out to the field and back.
+  if C.gatheredEnough("Sugar Canes") then
+    return "stasis"
+  end
+
   approachFirstCane()
   harvestHere()
 

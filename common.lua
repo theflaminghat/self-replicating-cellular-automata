@@ -1923,6 +1923,88 @@ function C.readAllChestCounts()
   return counts
 end
 
+-- ---------------------------------------------------------------------------
+-- "Have I gathered enough?" -- lets a farm stop once the tracked target for its crop
+-- is met, counting material the crafter/furnace has already turned into products.
+-- ---------------------------------------------------------------------------
+
+-- The replication target for tracked resource `name`, or 0 if it isn't tracked.
+function C.trackedTargetFor(name)
+  for _, r in ipairs(C.TRACKED_RESOURCES or {}) do
+    if r.name == name then return r.target or 0 end
+  end
+  return 0
+end
+
+-- Snapshot every non-empty stack in the robot's OWN inventory plus the tracked chests,
+-- as a flat list. One chest round trip (stasis -> chests -> stasis, ending parked at the
+-- charger); a single scan then answers several count/embodied queries without re-reading.
+function C.snapshotStacks()
+  local stacks = {}
+  local size = C.INVENTORY_SIZE or 64
+  for s = 1, size do
+    local st = inv.getStackInInternalSlot(s)
+    if st and st.size and st.size > 0 then stacks[#stacks + 1] = st end
+  end
+  C.gotoChestFromStasis()
+  C.forEachTrackedChest(function()
+    local ok, csize = pcall(inv.getInventorySize, sides.front)
+    if ok and csize then
+      for s = 1, csize do
+        local okS, st = pcall(inv.getStackInSlot, sides.front, s)
+        if okS and st and st.size and st.size > 0 then stacks[#stacks + 1] = st end
+      end
+    end
+  end)
+  C.gotoStasisFromChest()
+  return stacks
+end
+
+-- Sum the sizes of snapshot stacks matching `spec` (id or label).
+local function countSnapshot(stacks, spec)
+  local total = 0
+  for _, st in ipairs(stacks) do
+    if C.matchesSpec(st, spec) then total = total + (st.size or 0) end
+  end
+  return total
+end
+
+-- How many of `name` are already embodied in finished products that consumed it -- and
+-- recursively in the products that consume THOSE (sugar cane -> paper -> transistors,
+-- cactus -> cactus green, ...). Mirrors crafting.lua's embodiedCount but over a
+-- pre-taken snapshot. `seen` guards recipe cycles.
+local function embodiedInSnapshot(name, stacks, seen)
+  seen = seen or {}
+  if seen[name] then return 0 end
+  seen[name] = true
+  local total = 0
+  for _, c in ipairs(C.itemConsumers(name)) do
+    local made = countSnapshot(stacks, C.specFor(c.name)) + embodiedInSnapshot(c.name, stacks, seen)
+    -- (made / yield) * per: each of a consumer's `yield` outputs embodies one craft's
+    -- `per` of the ingredient, so divide by yield or a high-yield consumer over-counts.
+    total = total + (made / (c.yield or 1)) * c.per
+  end
+  return total
+end
+
+-- How much of base material `name` the robot has EFFECTIVELY gathered: the loose raw
+-- count (chest + inventory) plus every copy already embodied in a downstream product.
+-- Without the embodied part a raw-only count keeps re-triggering the farm after the
+-- crafter/furnace has turned the crop into paper / cactus green / etc.
+function C.effectiveGathered(name, stacks)
+  stacks = stacks or C.snapshotStacks()
+  return countSnapshot(stacks, C.specFor(name)) + embodiedInSnapshot(name, stacks)
+end
+
+-- True once the robot already holds its full replication target of `name` (raw +
+-- embodied in products), so a farm for `name` can skip itself. False when `name` isn't
+-- tracked (nothing needed) -- then farm as usual. Costs one chest round trip.
+function C.gatheredEnough(name)
+  local target = C.trackedTargetFor(name)
+  if target <= 0 then return false end
+  return C.effectiveGathered(name) >= target
+end
+
 -- In front of the tracked chest -> in front of the assembler (6,1,2).
 -- right, forward 3, right, forward 5, right  => (6,1,3) facing -Z.
 function C.gotoAssemblerFromChest()

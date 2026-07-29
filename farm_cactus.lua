@@ -30,6 +30,13 @@ local function farm_cactus()
     return "returning"
   end
 
+  -- Stop once enough cactus for every remaining build has been gathered -- counting
+  -- cactus already smelted into cactus green, not just the loose stacks. Skips the whole
+  -- trip out to the field and back.
+  if C.gatheredEnough("Cactus") then
+    return "stasis"
+  end
+
   C.followPath(C.CACTUS_OUT_PATH)
 
   descendOntoCactus()

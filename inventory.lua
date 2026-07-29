@@ -16,7 +16,7 @@ local INVENTORY_SIZE = C.INVENTORY_SIZE or 64
 -- Chest wall geometry. After C.gotoChestFromStasis() the robot stands at the
 -- tracked-chest access cell (1,1,0) facing -X, looking at the chest at (0,1,0).
 -- Chests sit at x=0 for each z in CHEST_ZS, stacked CHEST_LEVELS high (y=1..6).
-local CHEST_ZS = { 0, 1, 3, 4, 6, 7 }
+local CHEST_ZS = { 0, 3, 6 }
 local CHEST_LEVELS = C.CHEST_STACK_HEIGHT   -- 6
 
 -- Reserve cobble slots (45-48) are kept for pillaring during mining/farming and

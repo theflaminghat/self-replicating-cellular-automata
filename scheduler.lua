@@ -89,13 +89,6 @@ end
 -- Orchestrated steps (reuse existing states, no new state files)
 -- ---------------------------------------------------------------------------
 
--- Smelt only when more than 8 of an ore are present, always a multiple of 8 at
--- or below the amount present.
-local function smeltAmount(count)
-  if count <= 8 then return 0 end
-  return math.floor(count / 8) * 8
-end
-
 -- Collect finished results from the furnace (take before add, so we clear the
 -- output before loading a new batch).
 local function furnaceTakeStep()
@@ -107,52 +100,65 @@ end
 -- automatically includes it here.
 local function furnaceAddStep()
   local smeltables = C.smeltables()
-
-  -- Cobblestone floods the chest, so its stone OUTPUT is capped to the build's real
-  -- demand rather than smelting the whole pile. Precompute that demand and who
-  -- consumes stone, so we can discount stone the build already has -- both raw stone
-  -- and stone already baked into finished buttons.
   local builds = C.buildsNeeded()
-  local stoneDemand = C.smeltInputNeed("minecraft:cobblestone") * builds
-  local stoneConsumers = C.smeltOutputConsumers("Stone", "Stone")
 
+  -- Demand-gate EVERY smeltable: smelt an input only up to its OUTPUT's outstanding
+  -- build demand, crediting output already loose AND already baked into finished
+  -- consumers. So the furnace makes just what replication needs and stops, instead of
+  -- grinding whole piles of ore/cactus/etc. into ingots the build doesn't need (which
+  -- then spill into overflow). Cobblestone -> stone was the only input gated this way
+  -- before; every smeltable now follows the same rule.
+  --
+  -- Per smeltable, precompute its output demand (smelt is 1:1, so the input's plan need
+  -- IS the output count) and who consumes that output. Collect every id/label to count
+  -- -- inputs, outputs, consumers, and the fuel -- into ONE chest read.
+  local gauges = {}
   local items = {}
-  for _, s in ipairs(smeltables) do items[#items + 1] = s.input end
-  items[#items + 1] = "Stone"          -- output, to gauge raw stone on hand
-  for _, c in ipairs(stoneConsumers) do items[#items + 1] = c.key end
-  local counts = C.readChestCounts(items)
-
-  -- Coal on hand for smelting. Each job burns ceil(amount/8) coal; jobs that can't
-  -- be fueled are skipped this pass and retried later, once more coal is available.
-  local coalLeft = C.readChestCounts({ SMELT_FUEL })[SMELT_FUEL] or 0
-
-  -- Stone the build already has toward its demand. The freshly smelted stone is
-  -- collected into INVENTORY by furnaceTakeStep just before this runs, so counting
-  -- the chest alone would miss it and smelt a second batch. And once that stone is
-  -- crafted into buttons it's "gone" from the stone count -- so also credit the
-  -- stone embodied in finished buttons, or the furnace would re-smelt after the
-  -- buttons are already made. Both are what the user saw as an extra stone job.
-  local stoneOnHand = (counts["Stone"] or 0)
-                    + C.heldCount(C.specFor("Stone"))
-  for _, c in ipairs(stoneConsumers) do
-    -- (made / yield) * per: a consumer's yield outputs share one craft's `per`
-    -- stone, so divide by yield (harmless at yield 1, correct if it's ever higher).
-    local made = (counts[c.key] or 0) + C.heldCount(C.specFor(c.key))
-    stoneOnHand = stoneOnHand + (made / (c.yield or 1)) * c.per
+  local seen = {}
+  local function want(name)
+    if name and not seen[name] then seen[name] = true; items[#items + 1] = name end
+  end
+  want(SMELT_FUEL)
+  for _, s in ipairs(smeltables) do
+    local consumers = C.smeltOutputConsumers(s.output, s.output)
+    gauges[#gauges + 1] = {
+      s = s,
+      demand = C.smeltInputNeed(s.input) * builds,
+      consumers = consumers,
+    }
+    want(s.input)
+    want(s.output)
+    for _, c in ipairs(consumers) do want(c.key) end
   end
 
+  local counts = C.readChestCounts(items)
+
+  -- Coal on hand for smelting. Each job burns ceil(amount/8) coal; jobs that can't be
+  -- fueled are skipped this pass and retried later, once more coal is available.
+  local coalLeft = counts[SMELT_FUEL] or 0
+
   local jobs = {}
-  for _, s in ipairs(smeltables) do
-    local amount
-    if s.input == "minecraft:cobblestone" then
-      -- Smelt cobblestone to stone only up to the build's OUTSTANDING stone demand.
-      amount = math.min(counts[s.input] or 0,
-                        math.max(0, stoneDemand - stoneOnHand), 64)
-    else
-      -- One furnace load is at most a stack (64). Larger piles are smelted across
-      -- successive passes rather than all at once.
-      amount = math.min(smeltAmount(counts[s.input] or 0), 64)
+  for _, g in ipairs(gauges) do
+    local s = g.s
+
+    -- Output already available toward the demand. Freshly smelted output was collected
+    -- into INVENTORY by furnaceTakeStep just before this runs, so the chest count alone
+    -- would miss it and smelt a second batch -- add heldCount. And once the output is
+    -- crafted into a consumer it's "gone" from the loose count, so also credit the
+    -- output embodied in finished consumers, or the furnace re-smelts after the parts
+    -- are already made.
+    local onHand = (counts[s.output] or 0) + C.heldCount(C.specFor(s.output))
+    for _, c in ipairs(g.consumers) do
+      -- (made / yield) * per: each of a consumer's `yield` outputs shares one craft's
+      -- `per` of the smelt output, so divide by yield (correct if it's ever > 1).
+      local made = (counts[c.key] or 0) + C.heldCount(C.specFor(c.key))
+      onHand = onHand + (made / (c.yield or 1)) * c.per
     end
+
+    -- Smelt at most the OUTSTANDING demand (0 if the output isn't a build item), the
+    -- available input, and one furnace load (64).
+    local amount = math.min(counts[s.input] or 0,
+                            math.max(0, g.demand - onHand), 64)
     if amount > 0 then
       local fuelNeed = math.ceil(amount / 8)
       if coalLeft >= fuelNeed then
