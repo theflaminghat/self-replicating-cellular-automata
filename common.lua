@@ -112,7 +112,6 @@ C.ROBOT_PARTS = {
   { label = "Hard Disk Drive (Tier 2) (2MB)" },
   { label = "EEPROM" },
   { label = "Inventory Upgrade", count = 4 },  -- 4 x 16 = 64 internal slots
-  { label = "Redstone Card (Tier 1)" },
 }
 
 C.FLOOR_OVERRIDES = {

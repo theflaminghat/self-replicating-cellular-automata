@@ -91,40 +91,21 @@ end
 -- Orchestrated steps (reuse existing states, no new state files)
 -- ---------------------------------------------------------------------------
 
--- Collect finished results from the furnace (take before add, so we clear the
--- output before loading a new batch).
-local function furnaceTakeStep()
-  -- Skip the whole furnace sequence when there's no coal in the chest. With no fuel,
-  -- any input already sitting in the furnace can never finish smelting, so furnace_take
-  -- would poll it for the full ~30-minute timeout every cycle -- the robot looks stalled
-  -- at the charger instead of getting on with the weave. No coal -> nothing smelts ->
-  -- nothing to collect, so there's no point going to the furnace at all.
-  if (C.readChestCounts({ SMELT_FUEL })[SMELT_FUEL] or 0) <= 0 then
-    return
-  end
-  -- No-wait: grab whatever the furnace has finished and move on. The weave lap gives the
-  -- furnace ample time to smelt before the next visit, so sitting here polling for the
-  -- current batch would just stall the robot for minutes between take and add.
-  states.furnace_take(true)
-end
+-- One chest read serves the WHOLE furnace sequence. furnaceTakeStep reads it (to gate on
+-- coal), stashes it here, and furnaceAddStep reuses it -- so the robot does NOT make a
+-- second full 3-chest round trip between taking and adding. That extra read trip, with no
+-- visible work, is what looked like a long stall after take and before add. It's safe to
+-- reuse: the chest doesn't change between the two steps (furnace_take only moves output
+-- into the robot's own inventory), and the add step reads that live via heldCount.
+local pendingFurnacePlan
 
--- Read the chest and build furnace jobs for everything smeltable. The list comes
--- from the smelt recipes themselves (C.smeltables), so adding a smelt recipe
--- automatically includes it here.
-local function furnaceAddStep()
+-- Compute the static smelt gauges (per smeltable: output demand + who consumes it) and
+-- read the chest counts for every id/label involved -- inputs, outputs, consumers, and
+-- the fuel -- in ONE chest trip. smeltInputNeed / smeltOutputConsumers don't touch the
+-- chest; only the single readChestCounts does.
+local function readFurnacePlan()
   local smeltables = C.smeltables()
   local builds = C.buildsNeeded()
-
-  -- Demand-gate EVERY smeltable: smelt an input only up to its OUTPUT's outstanding
-  -- build demand, crediting output already loose AND already baked into finished
-  -- consumers. So the furnace makes just what replication needs and stops, instead of
-  -- grinding whole piles of ore/cactus/etc. into ingots the build doesn't need (which
-  -- then spill into overflow). Cobblestone -> stone was the only input gated this way
-  -- before; every smeltable now follows the same rule.
-  --
-  -- Per smeltable, precompute its output demand (smelt is 1:1, so the input's plan need
-  -- IS the output count) and who consumes that output. Collect every id/label to count
-  -- -- inputs, outputs, consumers, and the fuel -- into ONE chest read.
   local gauges = {}
   local items = {}
   local seen = {}
@@ -143,23 +124,46 @@ local function furnaceAddStep()
     want(s.output)
     for _, c in ipairs(consumers) do want(c.key) end
   end
-
   local counts = C.readChestCounts(items)
+  return { gauges = gauges, counts = counts, coal = counts[SMELT_FUEL] or 0, builds = builds }
+end
 
-  -- Coal on hand for smelting. Each job burns ceil(amount/8) coal; jobs that can't be
-  -- fueled are skipped this pass and retried later, once more coal is available.
-  local coalLeft = counts[SMELT_FUEL] or 0
+-- Collect finished results from the furnace (take before add, so we clear the output
+-- before loading a new batch). Reads the furnace plan once and hands it to furnaceAddStep.
+local function furnaceTakeStep()
+  local plan = readFurnacePlan()
+  pendingFurnacePlan = plan
+  -- No coal -> nothing can smelt, so there's nothing finished to collect and nothing to
+  -- add; skip the furnace trip entirely.
+  if plan.coal <= 0 then return end
+  -- No-wait: grab whatever the furnace has finished and move on. The weave lap gives the
+  -- furnace ample time to smelt before the next visit, so sitting here polling for the
+  -- current batch would just stall the robot for minutes.
+  states.furnace_take(true)
+end
+
+-- Build furnace jobs (demand-gated) and load them, reusing the chest read furnaceTakeStep
+-- already did this lap (only re-reads if that stash is somehow missing).
+--
+-- Demand-gate EVERY smeltable: smelt an input only up to its OUTPUT's outstanding build
+-- demand, crediting output already loose AND already baked into finished consumers -- so
+-- the furnace makes just what replication needs and stops, instead of grinding whole
+-- piles of ore/cactus into ingots the build doesn't need.
+local function furnaceAddStep()
+  local plan = pendingFurnacePlan or readFurnacePlan()
+  pendingFurnacePlan = nil
+  local gauges, counts, builds = plan.gauges, plan.counts, plan.builds
+  local coalLeft = plan.coal
 
   local jobs = {}
   for _, g in ipairs(gauges) do
     local s = g.s
 
     -- Output already available toward the demand. Freshly smelted output was collected
-    -- into INVENTORY by furnaceTakeStep just before this runs, so the chest count alone
-    -- would miss it and smelt a second batch -- add heldCount. And once the output is
-    -- crafted into a consumer it's "gone" from the loose count, so also credit the
-    -- output embodied in finished consumers, or the furnace re-smelts after the parts
-    -- are already made.
+    -- into INVENTORY by furnaceTakeStep just before this runs, so the (cached) chest count
+    -- alone would miss it -- add the live heldCount. And once the output is crafted into a
+    -- consumer it's "gone" from the loose count, so also credit the output embodied in
+    -- finished consumers, or the furnace re-smelts after the parts are already made.
     local onHand = (counts[s.output] or 0) + C.heldCount(C.specFor(s.output))
     for _, c in ipairs(g.consumers) do
       -- (made / yield) * per: each of a consumer's `yield` outputs shares one craft's
@@ -196,9 +200,9 @@ local function furnaceAddStep()
   -- can be explained (no coal / no input in the chest / every output already satisfied)
   -- rather than guessed at. Written to a file each pass -- `print` isn't visible in this
   -- setup -- so `edit /home/furnace_plan.txt` (or read it) shows the latest decision.
-  C.lastFurnacePlan = { coal = counts[SMELT_FUEL] or 0, jobs = #jobs, rows = {} }
+  C.lastFurnacePlan = { coal = plan.coal, jobs = #jobs, rows = {} }
   local lines = { string.format("furnace plan: %d job(s), coal=%d, builds=%d",
-                                #jobs, counts[SMELT_FUEL] or 0, builds) }
+                                #jobs, plan.coal, builds) }
   for _, g in ipairs(gauges) do
     C.lastFurnacePlan.rows[#C.lastFurnacePlan.rows + 1] = {
       output = g.s.output, input = g.s.input,
