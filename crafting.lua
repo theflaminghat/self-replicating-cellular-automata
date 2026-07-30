@@ -160,26 +160,37 @@ local function chestCountOf(item)
   return total
 end
 
--- How many of `name` are already embodied in finished products that consume it --
--- and, recursively, in the products that consume THOSE. An intermediate (a dropper,
--- a chest baked into a machine, ...) is consumed the moment its parent is crafted,
--- so a loose-only count reads it as "0 made" and the autocrafter re-crafts a whole
--- batch every cycle, piling the surplus into overflow. Crediting the embodied copies
--- makes a fully-consumed intermediate read as satisfied. `seen` guards recipe cycles.
-local function embodiedCount(name, seen)
-  seen = seen or {}
-  if seen[name] then return 0 end
-  seen[name] = true
+-- How many of `name` are already embodied in finished products that consume it -- and,
+-- recursively, in the products that consume THOSE. An intermediate (a nugget baked into a
+-- circuit board, a transistor into a chip, ...) is consumed the moment its parent is
+-- crafted, so a loose-only count reads it as "0 made" and the autocrafter re-crafts a
+-- whole batch every cycle, piling the surplus into overflow. Crediting the embodied
+-- copies makes a fully-consumed intermediate read as satisfied.
+--
+-- `memo` caches each item's total existence (loose + chest + embodied) so a product
+-- reached through TWO different intermediates -- a diamond dependency, e.g. both a PCB
+-- and a disk platter ending up in the same drive -- counts its full existence for BOTH
+-- paths. The old code used a plain "seen -> return 0" guard, which gave the second path
+-- zero and under-counted exactly the widely-shared intermediates (iron/gold nuggets,
+-- paper, transistors), so the crafter kept re-making them. `active` still breaks cycles.
+local function embodiedCount(name, memo, active)
+  memo = memo or {}
+  active = active or {}
+  if memo[name] then return memo[name] end
+  if active[name] then return 0 end                 -- recipe cycle: break it
+  active[name] = true
   local total = 0
   for _, c in ipairs(C.itemConsumers(name)) do
     local spec = C.specFor(c.name)
-    local made = countInInventory(spec) + chestCountOf(spec) + embodiedCount(c.name, seen)
-    -- `made` output items came from made/yield crafts, each consuming `per` of
-    -- `name`. So the amount embodied is (made / yield) * per -- dividing by the
-    -- consumer's yield, or a high-yield consumer (transistor: 1 paper -> 8) would
-    -- over-count the embodied ingredient (8x here) and stall crafting of it.
-    total = total + (made / (c.yield or 1)) * c.per
+    -- exist(c) = loose + chest + embodied-in-higher; each of a consumer's `yield` outputs
+    -- came from one craft that ate `per` of `name`, so it embodies (exist / yield) * per.
+    -- Dividing by yield stops a high-yield consumer (transistor: 1 paper -> 8) from
+    -- over-crediting the ingredient 8x.
+    local exist = countInInventory(spec) + chestCountOf(spec) + embodiedCount(c.name, memo, active)
+    total = total + (exist / (c.yield or 1)) * c.per
   end
+  active[name] = nil
+  memo[name] = total
   return total
 end
 

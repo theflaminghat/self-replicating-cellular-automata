@@ -1988,17 +1988,26 @@ end
 -- recursively in the products that consume THOSE (sugar cane -> paper -> transistors,
 -- cactus -> cactus green, ...). Mirrors crafting.lua's embodiedCount but over a
 -- pre-taken snapshot. `seen` guards recipe cycles.
-local function embodiedInSnapshot(name, stacks, seen)
-  seen = seen or {}
-  if seen[name] then return 0 end
-  seen[name] = true
+-- `memo` caches each item's total existence so a product reached through two different
+-- intermediates (a diamond dependency) counts its full existence for BOTH paths. A plain
+-- "seen -> return 0" guard gives the second path zero and under-counts the widely-shared
+-- intermediates (nuggets, paper, transistors), making the farm over-gather. `active`
+-- still breaks recipe cycles.
+local function embodiedInSnapshot(name, stacks, memo, active)
+  memo = memo or {}
+  active = active or {}
+  if memo[name] then return memo[name] end
+  if active[name] then return 0 end
+  active[name] = true
   local total = 0
   for _, c in ipairs(C.itemConsumers(name)) do
-    local made = countSnapshot(stacks, C.specFor(c.name)) + embodiedInSnapshot(c.name, stacks, seen)
-    -- (made / yield) * per: each of a consumer's `yield` outputs embodies one craft's
+    -- (exist / yield) * per: each of a consumer's `yield` outputs embodies one craft's
     -- `per` of the ingredient, so divide by yield or a high-yield consumer over-counts.
-    total = total + (made / (c.yield or 1)) * c.per
+    local exist = countSnapshot(stacks, C.specFor(c.name)) + embodiedInSnapshot(c.name, stacks, memo, active)
+    total = total + (exist / (c.yield or 1)) * c.per
   end
+  active[name] = nil
+  memo[name] = total
   return total
 end
 

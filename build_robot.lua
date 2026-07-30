@@ -181,14 +181,29 @@ local function build_robot()
     return "stasis"
   end
 
-  -- Take every part from the chest. pullFromFront returns how many it moved, so
-  -- there's no need to rescan the robot's inventory before and after each part.
-  for _, part in ipairs(parts) do
+  -- Take every part, spanning ALL 3 target chests -- a part can sit in any of them, and
+  -- partsReady() counts across all 3, so the pull must too, or a build that reads "ready"
+  -- fails on parts stored higher up. Track how much of each part is still owed and pull
+  -- the remainder at each chest level. The chest in front changes with the level, so drop
+  -- the scan cache at each one so chestEntries() rescans the new chest.
+  local taken = {}
+  for i = 1, #parts do taken[i] = 0 end
+
+  C.forEachTrackedChest(function()
+    chestIndex = nil
+    for i, part in ipairs(parts) do
+      local remaining = (part.count or 1) - taken[i]
+      if remaining > 0 then
+        taken[i] = taken[i] + pullFromFront(part, remaining)
+      end
+    end
+  end)
+
+  for i, part in ipairs(parts) do
     local want = part.count or 1
-    local got = pullFromFront(part, want)
     C.lastBuildReport[#C.lastBuildReport + 1] =
-      { item = specText(part), wanted = want, taken = got }
-    if got < want then
+      { item = specText(part), wanted = want, taken = taken[i] }
+    if taken[i] < want then
       C.lastBuildError = "missing: " .. specText(part)
     end
   end
