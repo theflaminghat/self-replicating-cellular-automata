@@ -719,12 +719,21 @@ function C.smeltables()
   return list
 end
 
--- Build a dependency-ordered production plan to make `name` x `count` starting
--- from raw base materials. Returns a list of steps in the order they can be
--- executed: { action = "smelt"|"craft", name = <item>, count = <how many> }.
--- Deepest dependencies come first, so every step's inputs exist by the time it
--- runs. Raw materials (no recipe) are omitted -- they are gathered, not made.
-function C.productionPlan(name, count)
+-- Build a dependency-ordered production plan for a whole REQUIREMENTS table
+-- ({ name -> count }), starting from raw base materials. Returns a list of steps in the
+-- order they can be executed: { action = "smelt"|"craft"|"crush", name, count, input }.
+-- Deepest dependencies come first, so every step's inputs exist by the time it runs. Raw
+-- materials (no recipe) are omitted -- they are gathered, not made.
+--
+-- Expanding the ENTIRE requirement set in ONE pass is essential: a widely-shared
+-- intermediate (paper, used by transistors AND the CPU; a transistor, used by every chip)
+-- has its demand summed across ALL its parents BEFORE it rounds up to whole craft batches.
+-- Rounding once against the total -- instead of once per parent, then summing -- is what
+-- keeps this plan's amounts equal to C.baseMaterialsForBuild's raw-material expansion. If
+-- they disagree, the autocrafter (which follows THIS plan) crafts more of an intermediate
+-- than the gathered/tracked raw material was sized for, draining the reserve (e.g. crafting
+-- 75 paper when only enough sugarcane for ~48 was set aside, eating the shipping stock).
+local function planForRequirements(requirements)
   local labelMap = labelToRecipeKey()
 
   local function recipeFor(n)
@@ -734,10 +743,7 @@ function C.productionPlan(name, count)
 
   -- Topological order via post-order DFS: an item is appended AFTER all its
   -- ingredients. Accumulating needed[] in REVERSE (parents first) then guarantees an
-  -- item's demand is fully summed from EVERY parent before it charges its own
-  -- ingredients. So a multiply-used intermediate (the transistor, used by many chips)
-  -- charges its ingredients (paper) for all of its uses, not just the first -- the old
-  -- single-pass DFS recursed on an item's first visit only and under-counted paper.
+  -- item's demand is fully summed from EVERY parent before it charges its own ingredients.
   local topo = {}
   local seen = {}
   local function collect(item, stack)
@@ -756,10 +762,17 @@ function C.productionPlan(name, count)
     stack[item] = nil
     topo[#topo + 1] = item
   end
-  collect(name, {})
+
+  -- Seed every requirement, then collect them all into ONE shared topo order.
+  local needed = {}
+  for name, count in pairs(requirements) do
+    if count and count > 0 then
+      needed[name] = (needed[name] or 0) + count
+      collect(name, {})
+    end
+  end
 
   -- Accumulate total needed[] parents-first (reverse of the topo order).
-  local needed = { [name] = count or 1 }
   for i = #topo, 1, -1 do
     local item = topo[i]
     local recipe = recipeFor(item)
@@ -798,28 +811,27 @@ function C.productionPlan(name, count)
   return steps
 end
 
--- The full ordered production plan for one build: every craft and smelt needed
--- to turn raw base materials into all the BOM items, deepest-first.
--- The plan is a pure function of the static BOM + recipes, but the autocrafter
--- rebuilds it every weave cycle. Compute it once and cache.
+-- Single-item convenience wrapper.
+function C.productionPlan(name, count)
+  return planForRequirements({ [name] = count or 1 })
+end
+
+-- The full ordered production plan for one build: every craft and smelt needed to turn
+-- raw base materials into all the BOM items, deepest-first. Built by expanding ALL the
+-- top-level craftable BOM items TOGETHER in a single pass (see planForRequirements) so
+-- shared intermediates round up once against the summed demand -- keeping the plan's
+-- amounts in lockstep with the raw materials the robot actually gathered.
+-- The plan is a pure function of the static BOM + recipes, but the autocrafter rebuilds
+-- it every weave cycle. Compute it once and cache.
 local _productionPlanCache
 function C.buildProductionPlan()
   if _productionPlanCache then return _productionPlanCache end
-  local merged = {}
-  local order = {}
+  local requirements = {}
   for _, entry in ipairs(C.buildCraftList()) do
-    for _, step in ipairs(C.productionPlan(entry.name, entry.count)) do
-      local prev = merged[step.name]
-      if prev then
-        prev.count = prev.count + step.count
-      else
-        merged[step.name] = step
-        order[#order + 1] = step
-      end
-    end
+    requirements[entry.name] = (requirements[entry.name] or 0) + (entry.count or 1)
   end
-  _productionPlanCache = order
-  return order
+  _productionPlanCache = planForRequirements(requirements)
+  return _productionPlanCache
 end
 
 -- Per-build quantity of `inputName` the BOM's smelt steps must CONSUME (0 if none).
