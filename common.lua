@@ -539,6 +539,7 @@ function C.scaleTrackedResources()
   end
   ensureAtLeast("Spruce Sapling", 64)
   ensureAtLeast("Coal", 64)
+  ensureAtLeast("Diamond", 15)   -- stock for diamond pickaxes (deep mining + offspring tool)
 
   C.TRACKED_RESOURCES = tracked
   return tracked
@@ -966,6 +967,7 @@ C.STASIS_Z = 3
 C.TRACKED_RESOURCES = {
   { name = "Spruce Sapling",  min = 64, target = 64 },
   { name = "Coal", min = 64, target = 64 },
+  { name = "Diamond", min = 15, target = 15 },
 }
 
 require("recipes")(C)
@@ -1141,7 +1143,7 @@ C.BUILD_LAYOUT = {
   { slot = 1, name = "minecraft:cobblestone", count = 64 },  -- floor (143 total)
   { slot = 2, name = "minecraft:cobblestone", count = 64 },
   { slot = 3, name = "minecraft:cobblestone", count = 15 },
-  { slot = 22, label = "Coal", count = 64 },        -- starting fuel
+  { slot = 22, label = "Coal", count = 128,        -- starting fuel
   { slot = C.TOOL_SLOT, label = "Diamond Pickaxe", count = 1 },  -- mining tool
 }
 for key, item in pairs(SLOT_ITEM) do

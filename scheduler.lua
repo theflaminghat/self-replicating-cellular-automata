@@ -487,15 +487,50 @@ end
 
 -- Start assembling the next offspring, but only when the assembler is free (not
 -- mid-build), we still owe offspring, and a full parts set is in the chest.
+--
+-- Writes /home/build_status.txt each pass explaining exactly why a build did or didn't
+-- start -- the gating flags AND, once those pass, a per-part have/need table -- so a
+-- "has the parts but won't build" state is diagnosable instead of guessed at.
 local function buildStep()
-  if C.batteryLevel() < 0.25 then return end
-  if assembling then return end
-  -- Don't start the next offspring until the current one is dispatched. This keeps
-  -- builtCount stable while a dispatch is pending, so dispatchStep's direction
-  -- lookup can't be knocked out from under it by a fresh collection.
-  if pendingDispatch then return end
-  if builtCount >= C.buildsNeeded() then return end
-  if not partsReady() then return end
+  local function writeStatus(header, lines)
+    pcall(function()
+      local f = io.open("/home/build_status.txt", "w")
+      if f then f:write(header .. "\n" .. table.concat(lines or {}, "\n") .. "\n"); f:close() end
+    end)
+  end
+
+  -- Cheap gating first (no chest trip). A flag stuck true here -- e.g. `assembling` or
+  -- `pendingDispatch` restored from disk after a reboot mid-cycle -- blocks building even
+  -- with a full parts set, so surface it explicitly.
+  if C.batteryLevel() < 0.25 then writeStatus("build: blocked -- low battery") return end
+  if assembling then writeStatus("build: blocked -- already assembling (flag stuck? reboot mid-build)") return end
+  if pendingDispatch then writeStatus("build: blocked -- waiting to dispatch previous offspring") return end
+  if builtCount >= C.buildsNeeded() then
+    writeStatus(string.format("build: done -- built %d of %d owed", builtCount, C.buildsNeeded()))
+    return
+  end
+
+  -- Gates passed: read the chest once and check each part's have vs need.
+  local names, need = {}, {}
+  for _, part in ipairs(C.ROBOT_PARTS or {}) do
+    local label = part.label or part.name
+    if not need[label] then names[#names + 1] = label end
+    need[label] = (need[label] or 0) + (part.count or 1)
+  end
+  local have = C.readChestCounts(names)
+  local lines, missing = {}, {}
+  for _, label in ipairs(names) do
+    local h, n = have[label] or 0, need[label]
+    lines[#lines + 1] = string.format("  %-40s %d/%d %s", label, h, n, (h >= n) and "ok" or "SHORT")
+    if h < n then missing[#missing + 1] = label end
+  end
+
+  if #missing > 0 then
+    writeStatus("build: blocked -- short on: " .. table.concat(missing, ", "), lines)
+    return
+  end
+
+  writeStatus("build: STARTING assembly", lines)
   states.build_robot()
   assembling = true
   saveReplication()
