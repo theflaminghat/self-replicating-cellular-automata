@@ -1157,7 +1157,7 @@ C.BUILD_LAYOUT = {
   { slot = 1, name = "minecraft:cobblestone", count = 64 },  -- floor (143 total)
   { slot = 2, name = "minecraft:cobblestone", count = 64 },
   { slot = 3, name = "minecraft:cobblestone", count = 15 },
-  { slot = 22, label = "Coal", count = 128}        -- starting fuel
+  { slot = 22, label = "Coal", count = 128},        -- starting fuel
   { slot = C.TOOL_SLOT, label = "Diamond Pickaxe", count = 1 },  -- mining tool
 }
 for key, item in pairs(SLOT_ITEM) do
