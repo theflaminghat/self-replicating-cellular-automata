@@ -65,6 +65,17 @@ function C.stackIsPickaxe(st)
     and (C.PICKAXE_IDS[st.name] or (st.label and C.PICKAXE_LABELS[st.label])) and true or false
 end
 
+-- A pickaxe sitting in ANY inventory slot (freshly crafted, wherever the crafter left it),
+-- not just the TOOL_SLOT staging spot. Used to tell whether a craft attempt actually
+-- produced a pickaxe before it's been staged.
+function C.hasInventoryPickaxe()
+  for s = 1, (C.INVENTORY_SIZE or 32) do
+    local ok, st = pcall(C.inv.getStackInInternalSlot, s)
+    if ok and C.stackIsPickaxe(st) then return true end
+  end
+  return false
+end
+
 -- The staged mining spare lives in TOOL_SLOT specifically, so the inventory state can
 -- tell it apart from a loose diamond pickaxe that's shipping stock (which DOES belong in
 -- the tracked chest) and leave it alone. A pickaxe sitting in TOOL_SLOT is that spare.
@@ -2098,6 +2109,27 @@ function C.snapshotStacks()
   return stacks
 end
 
+-- Snapshot every non-empty stack in the tracked chests ONLY (no inventory), as a flat
+-- list. One chest round trip. Callers that also want inventory append their own fresh
+-- inventory scan -- useful when the inventory changed after this snapshot was taken (e.g.
+-- the furnace collects output into inventory between reading the chest and deciding what
+-- to smelt).
+function C.chestStacks()
+  local stacks = {}
+  C.gotoChestFromStasis()
+  C.forEachTrackedChest(function()
+    local ok, csize = pcall(inv.getInventorySize, sides.front)
+    if ok and csize then
+      for s = 1, csize do
+        local okS, st = pcall(inv.getStackInSlot, sides.front, s)
+        if okS and st and st.size and st.size > 0 then stacks[#stacks + 1] = st end
+      end
+    end
+  end)
+  C.gotoStasisFromChest()
+  return stacks
+end
+
 -- Sum the sizes of snapshot stacks matching `spec` (id or label).
 local function countSnapshot(stacks, spec)
   local total = 0
@@ -2106,6 +2138,9 @@ local function countSnapshot(stacks, spec)
   end
   return total
 end
+
+-- Public: sum snapshot stacks matching `spec`.
+C.countStacks = countSnapshot
 
 -- How many of `name` are already embodied in finished products that consumed it -- and
 -- recursively in the products that consume THOSE (sugar cane -> paper -> transistors,

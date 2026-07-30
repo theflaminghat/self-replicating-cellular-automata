@@ -99,33 +99,26 @@ end
 -- into the robot's own inventory), and the add step reads that live via heldCount.
 local pendingFurnacePlan
 
--- Compute the static smelt gauges (per smeltable: output demand + who consumes it) and
--- read the chest counts for every id/label involved -- inputs, outputs, consumers, and
--- the fuel -- in ONE chest trip. smeltInputNeed / smeltOutputConsumers don't touch the
--- chest; only the single readChestCounts does.
+-- Compute the static smelt gauges (per smeltable: its per-build output demand) and take a
+-- full snapshot of the tracked chests in ONE trip. smeltInputNeed doesn't touch the chest;
+-- only the single chestStacks snapshot does. The add step derives every count it needs
+-- (coal, each input, each output + its recursive embodiment) from that snapshot in memory.
 local function readFurnacePlan()
   local smeltables = C.smeltables()
   local builds = C.buildsNeeded()
   local gauges = {}
-  local items = {}
-  local seen = {}
-  local function want(name)
-    if name and not seen[name] then seen[name] = true; items[#items + 1] = name end
-  end
-  want(SMELT_FUEL)
   for _, s in ipairs(smeltables) do
-    local consumers = C.smeltOutputConsumers(s.output, s.output)
     gauges[#gauges + 1] = {
       s = s,
       demand = C.smeltInputNeed(s.input) * builds,
-      consumers = consumers,
     }
-    want(s.input)
-    want(s.output)
-    for _, c in ipairs(consumers) do want(c.key) end
   end
-  local counts = C.readChestCounts(items)
-  return { gauges = gauges, counts = counts, coal = counts[SMELT_FUEL] or 0, builds = builds }
+  -- One chest trip: snapshot the WHOLE tracked-chest contents. The add step credits each
+  -- output not just where it sits loose but everywhere it's embodied in finished products
+  -- (recursively), which needs the full contents, not a fixed shortlist of item counts.
+  local chestStacks = C.chestStacks()
+  local coal = C.countStacks(chestStacks, C.specFor(SMELT_FUEL))
+  return { gauges = gauges, chestStacks = chestStacks, coal = coal, builds = builds }
 end
 
 -- Collect finished results from the furnace (take before add, so we clear the output
@@ -152,43 +145,34 @@ end
 local function furnaceAddStep()
   local plan = pendingFurnacePlan or readFurnacePlan()
   pendingFurnacePlan = nil
-  local gauges, counts, builds = plan.gauges, plan.counts, plan.builds
+  local gauges, builds = plan.gauges, plan.builds
   local coalLeft = plan.coal
+  local chestStacks = plan.chestStacks
 
-  -- Snapshot the robot's own inventory ONCE, then count from that in memory. C.heldCount
-  -- re-scans all 64 slots with a component call every time, and the loop below needs a
-  -- held count per smeltable output AND per consumer (~20+ lookups) -- calling heldCount
-  -- each time floods OpenComputers' per-tick component-call budget and leaves the robot
-  -- pausing at the charger for ~a minute between take and add. One scan fixes that.
-  local invStacks = {}
+  -- Combine the chest snapshot with a FRESH inventory scan: furnaceTakeStep collected the
+  -- just-finished output into inventory after the chest was read, so the current inventory
+  -- holds output the chest snapshot doesn't. Counting/embodiment run over this combined
+  -- list purely in memory (no per-item component calls), which also avoids the per-tick
+  -- component-call flood that used to stall the robot at the charger between take and add.
+  local stacks = {}
+  for _, st in ipairs(chestStacks) do stacks[#stacks + 1] = st end
   for slot = 1, (C.INVENTORY_SIZE or 64) do
     local ok, st = pcall(C.inv.getStackInInternalSlot, slot)
-    if ok and st and st.size and st.size > 0 then invStacks[#invStacks + 1] = st end
-  end
-  local function heldOf(spec)
-    local total = 0
-    for _, st in ipairs(invStacks) do
-      if C.matchesSpec(st, spec) then total = total + (st.size or 0) end
-    end
-    return total
+    if ok and st and st.size and st.size > 0 then stacks[#stacks + 1] = st end
   end
 
   -- First pass: work out how much each smeltable would smelt this cycle (no coal gate).
   for _, g in ipairs(gauges) do
     local s = g.s
 
-    -- Output already available toward the demand. Freshly smelted output was collected
-    -- into INVENTORY by furnaceTakeStep just before this runs, so the (cached) chest count
-    -- alone would miss it -- add the on-hand count. And once the output is crafted into a
-    -- consumer it's "gone" from the loose count, so also credit the output embodied in
-    -- finished consumers, or the furnace re-smelts after the parts are already made.
-    local onHand = (counts[s.output] or 0) + heldOf(C.specFor(s.output))
-    for _, c in ipairs(g.consumers) do
-      -- (made / yield) * per: each of a consumer's `yield` outputs shares one craft's
-      -- `per` of the smelt output, so divide by yield (correct if it's ever > 1).
-      local made = (counts[c.key] or 0) + heldOf(C.specFor(c.key))
-      onHand = onHand + (made / (c.yield or 1)) * c.per
-    end
+    -- Output already available toward the demand: the loose count (chest + inventory) PLUS
+    -- every copy already embodied in finished products that consumed it -- RECURSIVELY, not
+    -- just one level. Once an ingot is baked into a piston, and the piston into a drive, the
+    -- ingot is gone from the loose count and from the piston count; only a recursive credit
+    -- (the same one the farm/crafter use, C.effectiveGathered) sees it. A one-level credit
+    -- read low here, so the furnace kept re-smelting inputs whose output was already spoken
+    -- for -- exactly the "smelting things it already smelted" symptom.
+    local onHand = C.effectiveGathered(s.output, stacks)
 
     -- How much to smelt this pass. One coal smelts 8 items, so a batch that isn't a
     -- multiple of 8 burns a whole coal for a partial batch. Smelt in whole 8-item batches
@@ -196,7 +180,8 @@ local function furnaceAddStep()
     -- to finish this output's demand in one load, because then the odd remainder is items
     -- the build actually needs. So a small pile (5 iron ore) with a larger outstanding
     -- demand waits to accumulate a full batch instead of wasting a coal on 5 every pass.
-    local inputHave = counts[s.input] or 0
+    -- The furnace pulls its input FROM the chest, so gate on the chest-only input count.
+    local inputHave = C.countStacks(chestStacks, C.specFor(s.input))
     local outstanding = math.max(0, g.demand - onHand)
     local amount
     if outstanding <= inputHave and outstanding <= 64 then
@@ -279,20 +264,47 @@ local function equipPickaxe(name, label)
   return false
 end
 
+-- Craft the pickaxe `name` AND its craftable sub-ingredients into the inventory, in
+-- dependency order. The pickaxe eats 2 sticks, and sticks aren't part of the finite build
+-- demand -- so make them here (Spruce Wood Planks -> Stick) from the wood the spruce farm
+-- keeps replenishing, instead of draining whatever sticks happen to be left over. Smelt
+-- steps (iron ingot) are the furnace's job and are skipped; diamonds/ingots come from the
+-- chest. The FINAL pickaxe step doesn't count the chest, so a shipping pickaxe already
+-- stored there won't stop a fresh mining one from being made in the inventory.
+local function craftPickaxeOf(name)
+  local jobs = {}
+  for _, step in ipairs(C.productionPlan(name, 1)) do
+    if step.action == "craft" then
+      local isPickaxe = C.PICKAXE_IDS[step.name] or C.PICKAXE_LABELS[step.name]
+      jobs[#jobs + 1] = {
+        name = step.name,
+        amount = step.count,
+        countChest = not isPickaxe,
+        -- Target LOOSE copies, not embodied ones: the pickaxe pulls its sticks in the
+        -- flesh (availableCount ignores embodied), so the sub-crafts must actually make
+        -- them even when the build's sticks are already baked into its parts.
+        loose = true,
+      }
+    end
+  end
+  states.crafting(jobs)
+end
+
 -- Craft ONE replacement pickaxe into the inventory (does NOT equip it). Below world
 -- y = C.DIAMOND_BELOW_Y the quarry is in the deep layers, so make a DIAMOND pickaxe; iron
--- is fine higher up. C.quarryWorldY is the world Y of the layer the quarry was on. Ingots/
--- sticks (iron) or diamonds/sticks (diamond) come from the chest. If a diamond one can't
--- be made (no diamonds yet), fall back to iron so the quarry can still continue.
+-- is fine higher up. C.quarryWorldY is the world Y of the layer the quarry was on. If a
+-- diamond one can't be made (no diamonds yet), fall back to iron so the quarry can still
+-- continue. hasInventoryPickaxe (not hasSparePickaxe) is the success check: the fresh
+-- pickaxe is in a normal slot here, not yet staged into TOOL_SLOT.
 local function craftPickaxe()
   local deep = (C.quarryWorldY or math.huge) < (C.DIAMOND_BELOW_Y or 0)
   if deep then
-    states.crafting({ name = DIAMOND_PICKAXE, amount = 1 })
-    if C.hasSparePickaxe() then return end
+    craftPickaxeOf(DIAMOND_PICKAXE)
+    if C.hasInventoryPickaxe() then return end
     C.lastPickaxeError = "wanted a diamond pickaxe below y=" .. tostring(C.DIAMOND_BELOW_Y)
       .. " but couldn't craft one (no diamonds?); falling back to iron"
   end
-  states.crafting({ name = PICKAXE, amount = 1 })
+  craftPickaxeOf(PICKAXE)
 end
 
 -- Service the pickaxe after the quarry bailed (see C.needsPickaxeAction). Two cases:

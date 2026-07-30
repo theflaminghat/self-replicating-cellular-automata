@@ -123,11 +123,18 @@ local function fill_generators()
     return "stasis"
   end
 
-  -- Take enough coal for both generators.
-  local need = perGen * 2 - heldCoal()
-  if need > 0 then
-    pullCoal(need)
-  end
+  -- Take enough coal for both generators, looking through ALL 3 target chests -- coal can
+  -- sit in any of them, so pulling from just the level-1 chest can come up empty while the
+  -- rest of the column has plenty. forEachTrackedChest faces each level in turn and returns
+  -- to the home (level 1) chest, so the scripted route to the generators still lines up.
+  -- `need` is recomputed each level against what's already in hand, so it stops early once
+  -- both generators' worth is gathered.
+  C.forEachTrackedChest(function()
+    local need = perGen * 2 - heldCoal()
+    if need > 0 then
+      pullCoal(need)
+    end
+  end)
   local haveCoal = heldCoal()
   if haveCoal == 0 then
     C.lastGeneratorError = "no coal in chest"

@@ -455,7 +455,14 @@ local function runJob(job, crafting)
   -- Copies of this item already consumed into finished parents. Crafting this item
   -- doesn't change its consumers' counts, so compute it once per job rather than per
   -- pass. Without it, a consumed intermediate re-crafts a full batch every cycle.
-  local embodied = embodiedCount(job.name, nil)
+  --
+  -- `job.loose` opts OUT of the embodied credit: the job wants that many actual LOOSE
+  -- copies on hand, not copies baked into products. Used to top up an intermediate a
+  -- later NON-craft consumer needs in the flesh -- e.g. the sticks a pickaxe craft pulls
+  -- via availableCount (which never credits embodied). Without this, once the build's
+  -- sticks are embodied in its parts, have() reads satisfied and no loose sticks are ever
+  -- made, so the pickaxe craft starves.
+  local embodied = job.loose and 0 or embodiedCount(job.name, nil)
 
   local function have()
     local n = countInInventory(resultItem)
