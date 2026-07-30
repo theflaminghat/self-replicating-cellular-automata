@@ -102,7 +102,8 @@ local function depositTrackedChest()
     for i = 1, INVENTORY_SIZE do
       if not RESERVE[i] then
         local stack = inv.getStackInInternalSlot(i)
-        if stack and stack.name and stack.size and stack.size > 0 then
+        if stack and stack.name and stack.size and stack.size > 0
+           and not C.isStagedSpareSlot(i, stack) then
           for ti = 1, #tracked do
             if C.matchesSpec(stack, specs[ti]) then
               local room = (tracked[ti].target or 0) - stored[ti]
@@ -164,7 +165,8 @@ local function overflowable(specs, keep)
   for i = 1, INVENTORY_SIZE do
     if not RESERVE[i] then
       local stack = inv.getStackInInternalSlot(i)
-      if stack and stack.size and stack.size > 0 and not isOffspringRobot(stack) then
+      if stack and stack.size and stack.size > 0 and not isOffspringRobot(stack)
+         and not C.isStagedSpareSlot(i, stack) then
         local ti = matchTracked(stack, specs)
         if not ti then
           return true                                   -- untracked: overflow it
@@ -191,7 +193,8 @@ local function dumpAllHere(specs, keep)
   for i = 1, INVENTORY_SIZE do
     if not RESERVE[i] then
       local stack = inv.getStackInInternalSlot(i)
-      if stack and stack.size and stack.size > 0 and not isOffspringRobot(stack) then
+      if stack and stack.size and stack.size > 0 and not isOffspringRobot(stack)
+         and not C.isStagedSpareSlot(i, stack) then
         local ti = matchTracked(stack, specs)
         local dropAmt
         if ti then

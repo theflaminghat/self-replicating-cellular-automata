@@ -169,9 +169,11 @@ local function sweepQuarryLayer(patch, resumeXi, resumeZi)
         saveProgress()
         return false
       end
-      -- If the pickaxe broke, stop and go make a new one. Save exactly where we
-      -- are so the quarry resumes this same cell afterward.
-      if C.toolBrokenOrLow() then
+      -- Service the pickaxe only when action is actually needed: the tool broke (swap in
+      -- the spare), or it's low with no spare staged yet (go craft one). A low tool that
+      -- already has a spare keeps mining until it breaks -- see C.needsPickaxeAction. Save
+      -- exactly where we are so the quarry resumes this same cell afterward.
+      if C.needsPickaxeAction() then
         progress.xi, progress.zi = xi, zi
         saveProgress()
         return "craft_pickaxe"

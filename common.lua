@@ -38,6 +38,85 @@ function C.toolBrokenOrLow()
   return d <= C.TOOL_LOW
 end
 
+-- Is the equipped tool actually BROKEN (gone), as opposed to merely low? A broken
+-- tool reads nil durability.
+function C.toolBroken()
+  local ok, d = pcall(function() return C.robot.durability() end)
+  if not ok then return false end
+  return d == nil
+end
+
+-- Identities of the pickaxes the robot crafts (iron up high, diamond deep down). Used
+-- to spot a freshly-crafted SPARE staged in the inventory. The EQUIPPED tool lives in
+-- the tool slot, not an internal inventory slot, so any pickaxe found in inventory is a
+-- spare we crafted ahead of the current one breaking.
+C.PICKAXE_IDS = {
+  ["minecraft:iron_pickaxe"] = true,
+  ["minecraft:diamond_pickaxe"] = true,
+}
+C.PICKAXE_LABELS = {
+  ["Iron Pickaxe"] = true,
+  ["Diamond Pickaxe"] = true,
+}
+
+-- True if the stack in `slot` is a pickaxe.
+function C.stackIsPickaxe(st)
+  return st and st.size and st.size > 0
+    and (C.PICKAXE_IDS[st.name] or (st.label and C.PICKAXE_LABELS[st.label])) and true or false
+end
+
+-- The staged mining spare lives in TOOL_SLOT specifically, so the inventory state can
+-- tell it apart from a loose diamond pickaxe that's shipping stock (which DOES belong in
+-- the tracked chest) and leave it alone. A pickaxe sitting in TOOL_SLOT is that spare.
+function C.stagedSparePickaxe()
+  local ok, st = pcall(C.inv.getStackInInternalSlot, C.TOOL_SLOT)
+  if ok and C.stackIsPickaxe(st) then return st end
+  return nil
+end
+
+function C.hasSparePickaxe()
+  return C.stagedSparePickaxe() ~= nil
+end
+
+-- Is `slot` the staged-spare slot AND currently holding a pickaxe? The inventory state
+-- uses this to skip depositing the mining spare.
+function C.isStagedSpareSlot(slot, st)
+  return slot == C.TOOL_SLOT and C.stackIsPickaxe(st)
+end
+
+-- Move a freshly crafted spare pickaxe out of whatever slot the crafter left it in and
+-- into TOOL_SLOT for safekeeping. Returns true if a spare is now staged there.
+function C.stageSparePickaxe()
+  if C.stagedSparePickaxe() then return true end
+  for s = 1, (C.INVENTORY_SIZE or 32) do
+    if s ~= C.TOOL_SLOT and not C.isReserveSlot(s) then
+      local ok, st = pcall(C.inv.getStackInInternalSlot, s)
+      if ok and C.stackIsPickaxe(st) then
+        C.robot.select(s)
+        pcall(C.robot.transferTo, C.TOOL_SLOT, st.size)
+        return C.stagedSparePickaxe() ~= nil
+      end
+    end
+  end
+  return false
+end
+
+-- Whether the quarry should stop and service the pickaxe. It bails when the tool has
+-- actually BROKEN (durability nil -> swap in the staged spare, or craft one), or when
+-- the tool is running LOW and no spare has been crafted yet (go make one to stage). When
+-- the tool is merely low but a spare is ALREADY staged, it keeps mining -- using up the
+-- low tool's last durability before switching -- so nothing is wasted by equipping the
+-- fresh tool early.
+function C.needsPickaxeAction()
+  local ok, d = pcall(function() return C.robot.durability() end)
+  if not ok then return false end
+  if d == nil then return true end             -- broken: swap in the spare / craft one
+  if d <= C.TOOL_LOW then
+    return not C.hasSparePickaxe()             -- low: only act if no spare is staged yet
+  end
+  return false
+end
+
 function C.refreshReserveSlots()
   local size = nil
   if robot.inventorySize then
@@ -499,6 +578,22 @@ function C.scaleTrackedResources()
   -- them at the per-build count times the number of builds.
   for _, entry in ipairs(C.buildCraftList()) do
     put(entry.name, (entry.count or 1) * builds)
+  end
+
+  -- Track EVERY intermediate craft step too (paper, transistors, nuggets, chips, ...),
+  -- not just the top-level BOM items above. An intermediate is consumed within a craft
+  -- pass, but each craft level rounds UP, so a small rounding surplus is left over and
+  -- deposited by the inventory state. If that surplus isn't tracked it lands in overflow,
+  -- where crafting's chest count (which only reads the 3 tracked chests) can't see it --
+  -- so have() reads low and the autocrafter re-makes a fresh batch every single weave,
+  -- burning through the raw materials (the shipped sugarcane, gold, redstone) that were
+  -- reserved for the offspring. Keeping the surplus in the tracked chest lets have()/
+  -- embodiedCount find it and stop at the plan's target. Skip names already tracked
+  -- above so the shared top-level items aren't double-counted.
+  for _, step in ipairs(C.buildProductionPlan()) do
+    if step.action == "craft" and not index[step.name] then
+      put(step.name, (step.count or 0) * builds)
+    end
   end
 
   -- Smeltable inputs (ores, sand, cactus, raw circuit board, ...) mostly come out

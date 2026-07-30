@@ -173,7 +173,7 @@ local function furnaceAddStep()
     return total
   end
 
-  local jobs = {}
+  -- First pass: work out how much each smeltable would smelt this cycle (no coal gate).
   for _, g in ipairs(gauges) do
     local s = g.s
 
@@ -190,28 +190,47 @@ local function furnaceAddStep()
       onHand = onHand + (made / (c.yield or 1)) * c.per
     end
 
-    -- Smelt at most the OUTSTANDING demand (0 if the output isn't a build item), the
-    -- available input, and one furnace load (64).
+    -- How much to smelt this pass. One coal smelts 8 items, so a batch that isn't a
+    -- multiple of 8 burns a whole coal for a partial batch. Smelt in whole 8-item batches
+    -- to avoid that -- EXCEPT smelt the exact outstanding amount when we have enough input
+    -- to finish this output's demand in one load, because then the odd remainder is items
+    -- the build actually needs. So a small pile (5 iron ore) with a larger outstanding
+    -- demand waits to accumulate a full batch instead of wasting a coal on 5 every pass.
     local inputHave = counts[s.input] or 0
-    local amount = math.min(inputHave, math.max(0, g.demand - onHand), 64)
-    g.inputHave, g.onHand, g.amount = inputHave, onHand, amount   -- for the diagnostic
-    if amount > 0 then
-      local fuelNeed = math.ceil(amount / 8)
-      if coalLeft >= fuelNeed then
-        jobs[#jobs + 1] = {
-          -- A spec (id or { label = ... }) so furnace_add pulls the input from the
-          -- chest by whichever key actually identifies it.
-          item = C.specFor(s.input),
-          -- specFor so a label fuel ("Coal") matches by label; a bare string would
-          -- be treated as an item id and never match the live coal (minecraft:coal).
-          fuel = C.specFor(SMELT_FUEL),
-          amount = amount,
-          fuelAmount = fuelNeed,
-        }
-        coalLeft = coalLeft - fuelNeed
-      end
-      -- else: not enough coal for this input right now -- skip, retry next pass.
+    local outstanding = math.max(0, g.demand - onHand)
+    local amount
+    if outstanding <= inputHave and outstanding <= 64 then
+      amount = outstanding                                   -- finishes it; odd remainder OK
+    else
+      amount = math.floor(math.min(inputHave, 64) / 8) * 8   -- whole batches only; wait for the rest
     end
+    g.inputHave, g.onHand, g.amount = inputHave, onHand, amount   -- for the diagnostic
+    g.fuelNeed = math.ceil(amount / 8)
+  end
+
+  -- The furnace loads ONE job per pass, so process the BIGGEST pile first: sort by the
+  -- amount we'd smelt this cycle (then by raw input backlog to break ties), descending.
+  table.sort(gauges, function(a, b)
+    if (a.amount or 0) ~= (b.amount or 0) then return (a.amount or 0) > (b.amount or 0) end
+    return (a.inputHave or 0) > (b.inputHave or 0)
+  end)
+
+  -- Build jobs in that priority order, gating on coal. jobs[1] -- the largest smelt that
+  -- can be fueled -- is what furnace_add actually loads.
+  local jobs = {}
+  for _, g in ipairs(gauges) do
+    if (g.amount or 0) > 0 and coalLeft >= (g.fuelNeed or 0) then
+      jobs[#jobs + 1] = {
+        -- A spec (id or { label = ... }) so furnace_add pulls the input from the chest by
+        -- whichever key actually identifies it; specFor("Coal") matches the fuel by label.
+        item = C.specFor(g.s.input),
+        fuel = C.specFor(SMELT_FUEL),
+        amount = g.amount,
+        fuelAmount = g.fuelNeed,
+      }
+      coalLeft = coalLeft - g.fuelNeed
+    end
+    -- else: nothing to smelt, or not enough coal for it right now -- retry next pass.
   end
 
   -- Diagnostic: record WHY the furnace did or didn't load, so a "nothing smelting" state
@@ -245,8 +264,9 @@ local function furnaceAddStep()
   states.furnace_add(jobs)
 end
 
--- Craft the first inventory pickaxe matching (name/label) and equip it. Returns true
--- if one was found and equipped.
+-- Equip the first inventory pickaxe matching (name/label). Returns true if one was
+-- found and equipped. (The pickaxe must already be staged in the inventory -- this only
+-- moves it into the tool slot, it does not craft.)
 local function equipPickaxe(name, label)
   for s = 1, (C.INVENTORY_SIZE or 32) do
     local ok, st = pcall(C.inv.getStackInInternalSlot, s)
@@ -259,24 +279,52 @@ local function equipPickaxe(name, label)
   return false
 end
 
--- Craft a replacement pickaxe and equip it. Below world y = C.DIAMOND_BELOW_Y the quarry
--- is in the deep layers, so make a DIAMOND pickaxe; iron is fine higher up. C.quarryWorldY
--- is the world Y of the layer the quarry was on when the tool broke (the crafter itself
--- runs at the surface). Ingots/sticks (iron) or diamonds/sticks (diamond) come from the
--- chest. If a diamond one can't be made (no diamonds yet), fall back to iron so the
--- quarry can still continue.
-local function craftAndEquipPickaxe()
+-- Craft ONE replacement pickaxe into the inventory (does NOT equip it). Below world
+-- y = C.DIAMOND_BELOW_Y the quarry is in the deep layers, so make a DIAMOND pickaxe; iron
+-- is fine higher up. C.quarryWorldY is the world Y of the layer the quarry was on. Ingots/
+-- sticks (iron) or diamonds/sticks (diamond) come from the chest. If a diamond one can't
+-- be made (no diamonds yet), fall back to iron so the quarry can still continue.
+local function craftPickaxe()
   local deep = (C.quarryWorldY or math.huge) < (C.DIAMOND_BELOW_Y or 0)
   if deep then
     states.crafting({ name = DIAMOND_PICKAXE, amount = 1 })
-    if equipPickaxe(DIAMOND_PICKAXE, DIAMOND_PICKAXE_LABEL) then return end
+    if C.hasSparePickaxe() then return end
     C.lastPickaxeError = "wanted a diamond pickaxe below y=" .. tostring(C.DIAMOND_BELOW_Y)
       .. " but couldn't craft one (no diamonds?); falling back to iron"
   end
-
   states.crafting({ name = PICKAXE, amount = 1 })
-  if not equipPickaxe(PICKAXE, PICKAXE_LABEL) then
-    C.lastPickaxeError = "no pickaxe crafted (missing ingots/diamonds?)"
+end
+
+-- Service the pickaxe after the quarry bailed (see C.needsPickaxeAction). Two cases:
+--   * The tool BROKE: equip the spare staged earlier so the old pickaxe's last bit of
+--     durability wasn't wasted. If somehow no spare was staged, craft and equip a fresh
+--     one so the quarry can continue.
+--   * The tool is merely LOW and no spare is staged yet: craft one and leave it in the
+--     inventory as a spare -- do NOT equip it. The robot keeps mining with the low tool
+--     until it breaks, and the broken-case above then swaps the spare in.
+local function servicePickaxe()
+  if C.toolBroken() then
+    -- Prefer the spare we staged in TOOL_SLOT (never a loose shipping pickaxe).
+    if C.hasSparePickaxe() then
+      C.robot.select(C.TOOL_SLOT)
+      pcall(C.inv.equip)
+      return
+    end
+    -- No spare was staged: make one now and equip it.
+    craftPickaxe()
+    if equipPickaxe(DIAMOND_PICKAXE, DIAMOND_PICKAXE_LABEL) then return end
+    if not equipPickaxe(PICKAXE, PICKAXE_LABEL) then
+      C.lastPickaxeError = "no pickaxe crafted (missing ingots/diamonds?)"
+    end
+    return
+  end
+
+  -- Low but not broken, and no spare staged (that's why we're here): craft one, move it
+  -- into TOOL_SLOT for safekeeping, and keep mining with the current tool until it breaks.
+  craftPickaxe()
+  C.stageSparePickaxe()
+  if not C.hasSparePickaxe() then
+    C.lastPickaxeError = "wanted to stage a spare pickaxe but couldn't craft one"
   end
 end
 
@@ -567,10 +615,11 @@ local function runStep(entry)
   end
 
   if result == "craft_pickaxe" then
-    -- The tool broke mid-step (the quarry saved its progress and came to the
-    -- surface). Craft + equip a new pickaxe using the existing crafting state,
-    -- then re-run this same step so the quarry resumes where it stopped.
-    craftAndEquipPickaxe()
+    -- The quarry saved its progress and came to the surface because the pickaxe needs
+    -- servicing: either it broke (swap in the staged spare) or it's low and needs a
+    -- spare crafted ahead of time. Handle it with the existing crafting state, then
+    -- re-run this same step so the quarry resumes where it stopped.
+    servicePickaxe()
     return false  -- interrupted; caller re-runs this step
   end
 
