@@ -250,7 +250,7 @@ C.BUILD_BOM = {
     ["minecraft:chest"]         = 36,  -- 6 chest stacks x 6 high (CHEST_PLACEMENTS)
     ["minecraft:sand"]          = 8,
     ["minecraft:bucket"]        = 2,
-    ["Coal"]                    = 64,  -- starting generator/furnace fuel
+    ["Coal"]                    = 128, -- starting generator/furnace fuel
     ["minecraft:diamond_pickaxe"] = 1,  -- the offspring's mining tool
     ["Cactus"]                  = 1,
     ["Sugar Canes"]             = 7,  -- sugarcane
@@ -1157,7 +1157,7 @@ C.BUILD_LAYOUT = {
   { slot = 1, name = "minecraft:cobblestone", count = 64 },  -- floor (143 total)
   { slot = 2, name = "minecraft:cobblestone", count = 64 },
   { slot = 3, name = "minecraft:cobblestone", count = 15 },
-  { slot = 22, label = "Coal", count = 128,        -- starting fuel
+  { slot = 22, label = "Coal", count = 128}        -- starting fuel
   { slot = C.TOOL_SLOT, label = "Diamond Pickaxe", count = 1 },  -- mining tool
 }
 for key, item in pairs(SLOT_ITEM) do
