@@ -485,9 +485,13 @@ function C.scaleTrackedResources()
     end
   end
 
-  -- Raw base materials the robot must gather, scaled by the number of builds.
+  -- Raw base materials the robot must gather, scaled by the number of builds, plus any
+  -- per-material head-room from C.RESOURCE_BUFFERS. The computed need is already an upper
+  -- bound (every craft level rounds up), so this buffer is purely insurance against batch
+  -- waste / an off-by-one stalling the whole build on a single missing item.
+  local buffers = C.RESOURCE_BUFFERS or {}
   for name, per in pairs(base) do
-    put(name, per * builds)
+    put(name, per * builds + (buffers[name] or 0))
   end
 
   -- Crafted build items (furnace, chests, machines, robot parts, ...) also need
@@ -968,6 +972,16 @@ C.TRACKED_RESOURCES = {
   { name = "Spruce Sapling",  min = 64, target = 64 },
   { name = "Coal", min = 64, target = 64 },
   { name = "Diamond", min = 15, target = 15 },
+}
+
+-- Extra head-room added on top of a base material's computed need (see
+-- scaleTrackedResources). The estimate is already an upper bound, so this is a margin
+-- against batch-rounding waste / an off-by-one -- keyed by base-material name so it only
+-- pads the ones that actually run tight (redstone and gold feed almost every chip). Bump
+-- these if a build still stalls one item short.
+C.RESOURCE_BUFFERS = {
+  ["Redstone"] = 16,
+  ["Gold Ore"] = 6,
 }
 
 require("recipes")(C)
