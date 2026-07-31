@@ -39,10 +39,10 @@ return function(C)
                { label = "Iron Ingot" }, { label = "Spruce Chest" }, { label = "Iron Ingot" },
                nil,                    { label = "Iron Ingot" }, nil },
     },
-    ["minecraft:stone_button"] = {
-      result = { label = "Button" },
+    ["minecraft:spruce_button"] = {
+      result = { label = "Spruce Button" },
       yield = 1,
-      grid = { { label = "Stone" }, nil, nil,
+      grid = { { label = "Spruce Wood Planks" }, nil, nil,
                nil, nil, nil,
                nil, nil, nil },
     },
@@ -520,14 +520,6 @@ return function(C)
                nil,                      nil, nil },
     },
 
-    ["minecraft:stone"] = {
-      result = { label = "Stone" },
-      yield = 1,
-      smelt = true,
-      grid = { "minecraft:cobblestone", nil, nil,
-               nil,                     nil, nil,
-               nil,                     nil, nil },
-    },
   }
 
   return C.RECIPES

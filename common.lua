@@ -166,7 +166,7 @@ C.SLOTS = {
   furnace        = 10,
   sand           = 11,
   chest          = 12,
-  stone_button   = 13,
+  spruce_button  = 13,
   crusher        = 16,
   charger        = 17,
   lever          = 18,
@@ -335,7 +335,7 @@ C.BUILD_BOM = {
     ["minecraft:hopper"]        = 1,
     ["furnace"]                 = 1,
     ["oc:charger"]              = 1,
-    ["minecraft:stone_button"]  = 1,
+    ["minecraft:spruce_button"] = 1,
     ["xu2:crusher"]             = 1,
     ["minecraft:lever"]         = 1,
     ["minecraft:chest"]         = 36,  -- 6 chest stacks x 6 high (CHEST_PLACEMENTS)
@@ -585,27 +585,26 @@ function C.scaleTrackedResources()
     put(name, per * builds + (buffers[name] or 0))
   end
 
-  -- Crafted build items (furnace, chests, machines, robot parts, ...) also need
-  -- to be kept in the tracked chest rather than dumped into overflow, so track
-  -- them at the per-build count times the number of builds.
-  for _, entry in ipairs(C.buildCraftList()) do
-    put(entry.name, (entry.count or 1) * builds)
-  end
-
-  -- Track EVERY intermediate craft step too (paper, transistors, nuggets, chips, ...),
-  -- not just the top-level BOM items above. An intermediate is consumed within a craft
-  -- pass, but each craft level rounds UP, so a small rounding surplus is left over and
-  -- deposited by the inventory state. If that surplus isn't tracked it lands in overflow,
-  -- where crafting's chest count (which only reads the 3 tracked chests) can't see it --
-  -- so have() reads low and the autocrafter re-makes a fresh batch every single weave,
-  -- burning through the raw materials (the shipped sugarcane, gold, redstone) that were
-  -- reserved for the offspring. Keeping the surplus in the tracked chest lets have()/
-  -- embodiedCount find it and stop at the plan's target. Skip names already tracked
-  -- above so the shared top-level items aren't double-counted.
+  -- Keep every crafted item the build produces -- finished parts AND the intermediates on
+  -- the way (nuggets, chips, chests, ...) -- in the tracked chest rather than overflow, at
+  -- the FULL amount the unified production plan makes. Using the plan's count (not the
+  -- top-level BOM count) is what makes a DUAL-USE item come out right: a Spruce Chest is
+  -- needed both as a placed block AND as an ingredient of machine blocks / inventory
+  -- upgrades, and the plan sums BOTH demands. Tracking it at only the block share (as the
+  -- old top-level-BOM pass did) left the ingredient copies untracked -- they spilled to
+  -- overflow, went invisible to the crafter's chest count, got re-crafted every weave, and
+  -- the surplus flooded the tracked chest so genuinely-reserved items (e.g. the 15 diamonds)
+  -- no longer fit and overflowed in turn. The plan count keeps each item at its true total,
+  -- so nothing needed is pushed out. Each name is summed once (the plan already merged
+  -- every use), so `put` is called once per item -- no double counting.
+  local plannedCraft = {}
   for _, step in ipairs(C.buildProductionPlan()) do
-    if step.action == "craft" and not index[step.name] then
-      put(step.name, (step.count or 0) * builds)
+    if step.action == "craft" then
+      plannedCraft[step.name] = (plannedCraft[step.name] or 0) + (step.count or 0)
     end
+  end
+  for name, count in pairs(plannedCraft) do
+    put(name, count * builds)
   end
 
   -- Smeltable inputs (ores, sand, cactus, raw circuit board, ...) mostly come out
@@ -1256,7 +1255,7 @@ local SLOT_ITEM = {
   furnace        = { label = "Furnace",                 count = 1 },
   sand           = { label = "Sand",                    count = 8 },
   chest          = { label = "Spruce Chest",            count = 36 },  -- 6 stacks x 6 high
-  stone_button   = { label = "Button",                  count = 1 },
+  spruce_button  = { label = "Spruce Button",           count = 1 },
   crusher        = { label = "Crusher",                 count = 1 },
   charger        = { label = "Charger",                 count = 1 },
   lever          = { label = "Lever",                   count = 1 },
@@ -1436,7 +1435,7 @@ C.WATER_PLACEMENTS = {  { x = 4, z = 7 },
 }
 
 C.Y2_PLACEMENTS = {
-  { x = 7, z = 2, slot = C.SLOTS.stone_button },
+  { x = 7, z = 2, slot = C.SLOTS.spruce_button },
   { x = 5, z = 2, slot = C.SLOTS.crusher },
   { x = 5, z = 1, slot = C.SLOTS.leadstone_duct },
   { x = 4, z = 2, slot = C.SLOTS.lever },
