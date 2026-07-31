@@ -218,6 +218,14 @@ return function(C)
                { label = "Spruce Wood Planks" }, { label = "Microchip (Tier 1)" }, { label = "Spruce Wood Planks" } },
     },
 
+    ["oc:battery_upgrade3"] = {
+      result = { label = "Battery Upgrade (Tier 3)" },
+      yield = 1,
+      grid = { { label = "Iron Nugget" }, { label = "Capacitor" },      { label = "Iron Nugget" },
+               { label = "Capacitor" },   { label = "Diamond Nugget" }, { label = "Capacitor" },
+               { label = "Iron Nugget" }, { label = "Capacitor" },      { label = "Iron Nugget" } },
+    },
+
     ["oc:inventory_controller_upgrade"] = {
       result = { label = "Inventory Controller Upgrade" },
       yield = 1,

@@ -90,7 +90,9 @@ end
 -- Placement helpers.
 -- ---------------------------------------------------------------------------
 
-local function fwd(n) for _ = 1, n do moveForward() end end
+-- Surface route: mine through anything blocking the path (see C.travelForward) instead of
+-- silently stalling and losing sync with the scripted step sequence.
+local function fwd(n) for _ = 1, n do C.travelForward() end end
 local function up(n) for _ = 1, n do moveUp() end end
 local function down(n) for _ = 1, n do moveDown() end end
 

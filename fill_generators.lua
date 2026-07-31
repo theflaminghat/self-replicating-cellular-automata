@@ -20,8 +20,10 @@ local function isCoal(st)
 end
 local FETCH_SLOT = 22
 
+-- Surface route: mine through anything blocking the path (see C.travelForward) instead of
+-- silently stalling and losing sync with the scripted step sequence.
 local function fwd(n)
-  for _ = 1, n do C.moveForward() end
+  for _ = 1, n do C.travelForward() end
 end
 
 local facingInventory = C.facingFront

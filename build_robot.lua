@@ -7,8 +7,10 @@ local sides = C.sides
 local os = C.os
 local batteryLevel = C.batteryLevel
 
+-- Surface route: mine through anything blocking the path (see C.travelForward) instead of
+-- silently stalling and losing sync with the scripted step sequence.
 local function fwd(n)
-  for _ = 1, n do C.moveForward() end
+  for _ = 1, n do C.travelForward() end
 end
 
 -- Shared item/inventory helpers (defined in common.lua).
@@ -130,7 +132,7 @@ local function flashComputer()
     if ok and res == "block_activated" then break end
   end
   C.moveDown()
-  os.sleep(3)
+  os.sleep(6)
 
   -- Slot 10: pull the Lua-BIOS EEPROM out, drop the blank EEPROM in. The harvested
   -- Lua-BIOS EEPROM becomes the offspring's, so repoint its held slot.
@@ -145,14 +147,14 @@ local function flashComputer()
     pcall(inv.dropIntoSlot, sides.front, COMP_EEPROM_SLOT, 1)
   end
   if luaBios then heldSlotOf["EEPROM"] = luaBios end
-  os.sleep(3)
+  os.sleep(6)
 
   -- Slot 7: drop the blank hard drive in, wait for the OS to install, take it back.
   local hdd = heldSlotOf["Hard Disk Drive (Tier 2) (2MB)"]
   if hdd then
     robot.select(hdd)
     pcall(inv.dropIntoSlot, sides.front, COMP_HDD_SLOT, 1)
-    os.sleep(18)
+    os.sleep(20)
     robot.select(hdd)
     pcall(inv.suckFromSlot, sides.front, COMP_HDD_SLOT, 1)
   end

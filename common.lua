@@ -194,6 +194,7 @@ C.COMPUTER_PARTS = {
 -- rejects. `count` is how many of that item to load (default 1).
 C.ROBOT_PARTS = {
   { label = "Computer Case (Tier 3)" },
+  { label = "Battery Upgrade (Tier 3)" },      -- extra energy capacity
   { label = "Solar Generator Upgrade", count = 2 },
   { label = "Inventory Controller Upgrade" },
   { label = "Crafting Upgrade" },
@@ -681,28 +682,21 @@ local function adjustTracked(name, delta)
   end
 end
 
--- When `count` of `name` is crafted: remove the DIRECT ingredients it consumed from
--- the tracked resources and add the crafted item itself (it now needs to be kept).
--- Mutates C.TRACKED_RESOURCES.
---
--- Direct ingredients, NOT the fully-expanded base materials: each intermediate is
--- tracked in turn as it's crafted (planks added when made, then consumed when the
--- chest is made). Charging a chest all the way back to logs would double-count the
--- logs -- once for the planks, again for the chest that used them -- draining the
--- log target to zero and sending logs the robot still needs (e.g. for sticks) to
--- the overflow instead of keeping them.
+-- Deliberately a NO-OP. It used to delta-mutate C.TRACKED_RESOURCES after every craft
+-- (+ the crafted item, - the ingredients it consumed) as a DYNAMIC way to keep whatever
+-- intermediate was "current" in the tracked chest. That is now fully superseded by
+-- C.scaleTrackedResources, which STATICALLY tracks the entire production tree up front --
+-- base materials, every intermediate craft step, smelt outputs, and the finished parts --
+-- at fixed per-build targets. Running both together is not just redundant, it's harmful:
+-- when a consumer is crafted in a pass where its intermediate wasn't ALSO re-made (because
+-- have()'s embodied credit already read it satisfied), only the DECREMENT fired, so a
+-- fully-consumed intermediate (Microchip (Tier 3), the nuggets, ...) had its target driven
+-- to zero and was DROPPED from tracking. Untracked, it -- and any product still embodying
+-- it -- spilled to overflow, where the crafter's chestCountOf and the furnace's chestStacks
+-- (both tracked-chest only) couldn't see it, so have()/onHand read low and it got re-crafted
+-- and its inputs re-smelted. Leaving the static targets stable fixes that; the crafter and
+-- furnace credit embodied copies themselves, so no dynamic bookkeeping is needed.
 function C.onItemCrafted(name, count)
-  count = count or 1
-  local labelMap = labelToRecipeKey()
-  local key = recipeKeyFor(name, labelMap)
-  local recipe = key and C.RECIPES[key] or nil
-  if recipe then
-    local crafts = math.ceil(count / (recipe.yield or 1))
-    for ing, per in pairs(recipeIngredients(recipe)) do
-      adjustTracked(ing, -per * crafts)
-    end
-  end
-  adjustTracked(name, count)
 end
 
 -- All smelting recipes, as a list of { input, output, key }. Derived from
@@ -1557,6 +1551,29 @@ function C.stepDir(dir)
   end
 end
 
+-- How many times a blocked surface move mines-and-retries before giving up, so an
+-- unbreakable obstruction (or a mob shoving the robot) can't spin forever.
+C.TRAVEL_MINE_TRIES = 8
+
+-- Surface travel move. On the base platform the path is normally clear, so a blocked move
+-- means something wandered or fell into the way -- a mob, gravel/sand, a dropped block. Mine
+-- straight ahead and retry instead of silently failing, which would strand the robot and let
+-- its dead-reckoned position drift out of sync with the world. The remembered position stays
+-- exact: pos only advances on a REAL move (C.moveForward updates it only when robot.forward()
+-- succeeds), so mining first and moving second keeps it correct -- and if the way genuinely
+-- can't be cleared, the position stays put (the robot knows it did NOT advance) rather than
+-- being assumed a cell forward. Returns true once it moved, false if still blocked after the
+-- retries. NOTE: deliberately NOT folded into C.moveForward -- farm_spruce reads a plain
+-- moveForward's success/failure as its tree-growth probe, which must stay non-mining.
+function C.travelForward()
+  if C.moveForward() then return true end
+  for _ = 1, (C.TRAVEL_MINE_TRIES or 8) do
+    robot.swing()                 -- break the block / strike the entity blocking the path
+    if C.moveForward() then return true end
+  end
+  return false
+end
+
 function C.stepDirNoDig(dir)
   C.face(dir)
   return C.moveForward()
@@ -1952,9 +1969,11 @@ function C.offspringRobotSlot()
 end
 
 -- Scripted furnace-area movement. These are literal step sequences (not
--- coordinate navigation) so they match the real base layout exactly.
+-- coordinate navigation) so they match the real base layout exactly. They run on the
+-- surface, so mine through anything that's wandered/fallen into the path (C.travelForward)
+-- rather than silently stalling and losing sync with the scripted route.
 local function fwd(n)
-  for _ = 1, n do C.moveForward() end
+  for _ = 1, n do C.travelForward() end
 end
 
 -- Stasis (4,1,3 facing charger) -> in front of the tracked chest.
