@@ -26,9 +26,9 @@ return function(C)
                nil, nil, nil },
     },
     ["minecraft:chest"] = {
-      -- 8 spruce planks craft a Spruce Chest in this pack; the live item is matched
+      -- Vanilla: 8 planks of any wood craft a plain "Chest". The live item is matched
       -- by its label, so declare the result so tracking/crafting recognize it.
-      result = { label = "Spruce Chest" },
+      result = { label = "Chest" },
       yield = 1,
       grid = { { label = "Spruce Wood Planks" }, { label = "Spruce Wood Planks" }, { label = "Spruce Wood Planks" },
                { label = "Spruce Wood Planks" }, nil,                { label = "Spruce Wood Planks" },
@@ -38,11 +38,13 @@ return function(C)
       result = { label = "Hopper" },
       yield = 1,
       grid = { { label = "Iron Ingot" }, nil,               { label = "Iron Ingot" },
-               { label = "Iron Ingot" }, { label = "Spruce Chest" }, { label = "Iron Ingot" },
+               { label = "Iron Ingot" }, { label = "Chest" }, { label = "Iron Ingot" },
                nil,                    { label = "Iron Ingot" }, nil },
     },
-    ["minecraft:spruce_button"] = {
-      result = { label = "Spruce Button" },
+    ["minecraft:wooden_button"] = {
+      -- Vanilla: 1 plank of any wood crafts a "Button". The stone button has the same
+      -- label; either works as the computer's power button, so the label match is fine.
+      result = { label = "Button" },
       yield = 1,
       grid = { { label = "Spruce Wood Planks" }, nil, nil,
                nil, nil, nil,
@@ -162,7 +164,7 @@ return function(C)
       result = { label = "Computer Case (Tier 3)" },
       yield = 1,
       grid = { { label = "Diamond" },  { label = "Microchip (Tier 3)" }, { label = "Diamond" },
-               { label = "Iron Bars" }, { label = "Spruce Chest" },        { label = "Iron Bars" },
+               { label = "Iron Bars" }, { label = "Chest" },        { label = "Iron Bars" },
                { label = "Diamond" },  { label = "Printed Circuit Board (PCB)" },
                { label = "Diamond" } },
     },
@@ -216,7 +218,7 @@ return function(C)
       result = { label = "Inventory Upgrade" },
       yield = 1,
       grid = { { label = "Spruce Wood Planks" }, { label = "Hopper" },           { label = "Spruce Wood Planks" },
-               { label = "Dropper" },              { label = "Spruce Chest" },   { label = "Piston" },
+               { label = "Dropper" },              { label = "Chest" },   { label = "Piston" },
                { label = "Spruce Wood Planks" }, { label = "Microchip (Tier 1)" }, { label = "Spruce Wood Planks" } },
     },
 
@@ -340,7 +342,7 @@ return function(C)
       result = { label = "Machine Block" },
       yield = 4,
       grid = { { label = "Iron Ingot" }, { label = "Redstone" },  { label = "Iron Ingot" },
-               { label = "Redstone" },   { label = "Spruce Chest" }, { label = "Redstone" },
+               { label = "Redstone" },   { label = "Chest" }, { label = "Redstone" },
                { label = "Iron Ingot" }, { label = "Redstone" },  { label = "Iron Ingot" } },
     },
 

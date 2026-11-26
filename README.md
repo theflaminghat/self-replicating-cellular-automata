@@ -88,13 +88,15 @@ Minecraft **1.12.2** with Forge, plus:
 ### Items matched by name
 
 The code finds items by their in-game display names, and every recipe is written out in
-`recipes.lua`. Your pack must provide these items under exactly these names and recipes:
+`recipes.lua`. Items use their vanilla 1.12 names: the robot crafts its wooden items
+from Spruce Wood Planks, and gets a plain "Chest" and "Button" as vanilla gives. One
+item isn't in vanilla, so your pack must provide it under exactly this name and recipe:
 
-- **Spruce Chest:** 8 Spruce Wood Planks make 1. Vanilla makes a plain "Chest" instead.
-- **Spruce Button:** 1 Spruce Wood Planks makes 1. Vanilla makes a plain "Button".
-- **Diamond Nugget:** 1 Diamond makes 9. Not in vanilla.
+- **Diamond Nugget:** 1 Diamond makes 9.
 
-If your pack changes any recipe the robot crafts, edit `recipes.lua` to match.
+If your pack changes any recipe the robot crafts, edit `recipes.lua` to match. That
+includes packs with wood-variant blocks, where 8 Spruce Wood Planks make a "Spruce
+Chest" instead of a "Chest".
 
 ### OpenComputers config
 
@@ -137,8 +139,8 @@ The robot expects its starter kit in these exact slots (`C.BUILD_LAYOUT`):
 | 9 | Hopper | 1 |
 | 10 | Furnace | 1 |
 | 11 | Sand | 8 |
-| 12 | Spruce Chest | 36 |
-| 13 | Spruce Button | 1 |
+| 12 | Chest | 36 |
+| 13 | Button | 1 |
 | 14, 15 | Water Bucket | 1 each |
 | 16 | Crusher | 1 |
 | 17 | Charger | 1 |

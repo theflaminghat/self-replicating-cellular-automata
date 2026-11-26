@@ -35,7 +35,7 @@ local JOBS = {
   { name = "aa:coal_generator",     amount = 1 },
   { name = "td:leadstone_fluxduct", amount = 6 },
   { name = "xu2:crusher",           amount = 1 },
-  { name = "spruce_chest",          amount = 1 },
+  { name = "minecraft:chest",       amount = 1 },
 }
 
 C.assumeMaterials = true

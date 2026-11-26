@@ -166,7 +166,7 @@ C.SLOTS = {
   furnace        = 10,
   sand           = 11,
   chest          = 12,
-  spruce_button  = 13,
+  button         = 13,
   crusher        = 16,
   charger        = 17,
   lever          = 18,
@@ -342,7 +342,7 @@ C.BUILD_BOM = {
     ["minecraft:hopper"]        = 1,
     ["furnace"]                 = 1,
     ["oc:charger"]              = 1,
-    ["minecraft:spruce_button"] = 1,
+    ["minecraft:wooden_button"] = 1,
     ["xu2:crusher"]             = 1,
     ["minecraft:lever"]         = 1,
     ["minecraft:chest"]         = 36,  -- 6 chest stacks x 6 high (CHEST_PLACEMENTS)
@@ -595,7 +595,7 @@ function C.scaleTrackedResources()
   -- Keep every crafted item the build produces -- finished parts AND the intermediates on
   -- the way (nuggets, chips, chests, ...) -- in the tracked chest rather than overflow, at
   -- the FULL amount the unified production plan makes. Using the plan's count (not the
-  -- top-level BOM count) is what makes a DUAL-USE item come out right: a Spruce Chest is
+  -- top-level BOM count) is what makes a DUAL-USE item come out right: a Chest is
   -- needed both as a placed block AND as an ingredient of machine blocks / inventory
   -- upgrades, and the plan sums BOTH demands. Tracking it at only the block share (as the
   -- old top-level-BOM pass did) left the ingredient copies untracked -- they spilled to
@@ -1265,8 +1265,8 @@ local SLOT_ITEM = {
   hopper         = { label = "Hopper",                  count = 1 },
   furnace        = { label = "Furnace",                 count = 1 },
   sand           = { label = "Sand",                    count = 8 },
-  chest          = { label = "Spruce Chest",            count = 36 },  -- 6 stacks x 6 high
-  spruce_button  = { label = "Spruce Button",           count = 1 },
+  chest          = { label = "Chest",                   count = 36 },  -- 6 stacks x 6 high
+  button         = { label = "Button",                  count = 1 },
   crusher        = { label = "Crusher",                 count = 1 },
   charger        = { label = "Charger",                 count = 1 },
   lever          = { label = "Lever",                   count = 1 },
@@ -1450,7 +1450,7 @@ C.WATER_PLACEMENTS = {  { x = 4, z = 7 },
 }
 
 C.Y2_PLACEMENTS = {
-  { x = 7, z = 2, slot = C.SLOTS.spruce_button },
+  { x = 7, z = 2, slot = C.SLOTS.button },
   { x = 5, z = 2, slot = C.SLOTS.crusher },
   { x = 5, z = 1, slot = C.SLOTS.leadstone_duct },
   { x = 4, z = 2, slot = C.SLOTS.lever },
