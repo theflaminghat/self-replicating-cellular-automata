@@ -497,6 +497,30 @@ local function takeRobotStep()
   end
 end
 
+-- Fill the offspring's water buckets: the autocrafter makes empty Buckets, fill_buckets
+-- fills them at the base's water source. The offspring needs them to place the water its
+-- sugarcane grows beside, and dispatchStep's all-or-nothing materials gate won't send it
+-- without them. Only runs while a collected offspring is waiting, and only tops up to the
+-- C.WATER_SLOTS it carries, so the robot isn't hauling water every lap. Filled buckets are
+-- tracked, so if the gate still fails on something else, the inventory step keeps them in
+-- the tracked chest for the retry rather than dumping them to overflow.
+local function fillBucketsStep()
+  if not pendingDispatch then return end
+  if not C.offspringRobotSlot() then return end    -- stale flag; dispatchStep clears it
+  if C.batteryLevel() < 0.25 then return end       -- charge first; retry next pass
+
+  local need = #C.WATER_SLOTS
+  local have = C.heldCount(C.specFor("Water Bucket"))
+  if have < need then
+    have = have + (C.readChestCounts({ "Water Bucket" })["Water Bucket"] or 0)
+  end
+  if have >= need then return end
+
+  if states.fill_buckets(need - have) == "returning" then
+    chargeCycle()
+  end
+end
+
 -- Dispatch a collected offspring (program its boot media at the computer). Only
 -- runs when one is waiting.
 local function dispatchStep()
@@ -662,6 +686,7 @@ WEAVE = {
   "inventory",
   autocraftStep,
   takeRobotStep,
+  fillBucketsStep,   -- fill the waiting offspring's water buckets (skips itself otherwise)
   dispatchStep,
   "inventory",     -- clean up dispatch leftovers and refill the reserve used bridging
   buildStep,

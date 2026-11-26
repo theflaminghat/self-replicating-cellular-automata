@@ -1,7 +1,18 @@
+-- fill_buckets.lua
+-- Fill empty buckets with water for an offspring's build payload. From stasis: take
+-- empty buckets from the tracked chests, fly over the sugarcane to sit above the
+-- base's water source, fill them one at a time, and return to stasis carrying the
+-- full ones. `want` is how many to fill (default: one per C.WATER_SLOTS slot).
+--
+-- The base places water at (4,1,7) and (6,1,7); the gap between them, (5,1,7), has
+-- two source neighbours over a solid floor, so it becomes a source too -- an endless
+-- one. Taking water from that MIDDLE block refills it instantly. Taking it from an end
+-- block (as this used to, from (6,1,7)) leaves only flowing water there, which never
+-- turns back into a source: one bucket, then nothing ever again.
+
 local C = require("common")
 
 local robot = C.robot
-local pos = C.pos
 local inv = C.inv
 local sides = C.sides
 local batteryLevel = C.batteryLevel
@@ -10,7 +21,6 @@ local EMPTY_BUCKET_NAME = "minecraft:bucket"
 local WATER_BUCKET_NAME = "minecraft:water_bucket"
 local EMPTY_BUCKET_LABEL = "Bucket"
 local WATER_BUCKET_LABEL = "Water Bucket"
-local FETCH_SLOT = 22
 
 -- Surface route: mine through anything blocking the path (see C.travelForward) instead of
 -- silently stalling and losing sync with the scripted step sequence.
@@ -35,13 +45,60 @@ local function isEmptyBucket(st)
   return false
 end
 
--- Robot -> in front of the water. From stasis: to the chest, take buckets, then
--- over the sugarcane to sit above the water source (5,1,7).
-local function gotoChestFromStasis()
-  C.gotoChestFromStasis()
+local function isWaterBucket(st)
+  if not st then return false end
+  return st.name == WATER_BUCKET_NAME or st.label == WATER_BUCKET_LABEL
 end
 
--- Chest access (1,1,0 facing -X) -> above the water (5,2,7 facing +X).
+local function countEmptyBuckets()
+  local total = 0
+  for s = 1, (C.INVENTORY_SIZE or 32) do
+    if not C.isReserveSlot(s) then
+      local ok, st = pcall(inv.getStackInInternalSlot, s)
+      if ok and isEmptyBucket(st) and st.size then
+        total = total + st.size
+      end
+    end
+  end
+  return total
+end
+
+local function findEmptyBucketSlot()
+  for s = 1, (C.INVENTORY_SIZE or 32) do
+    if not C.isReserveSlot(s) then
+      local ok, st = pcall(inv.getStackInInternalSlot, s)
+      if ok and isEmptyBucket(st) and st.size and st.size > 0 then
+        return s
+      end
+    end
+  end
+  return nil
+end
+
+-- Pull up to `need` empty buckets from the chest in front; returns how many came over.
+-- Each pull lands in a genuinely empty slot: suckFromSlot targets the SELECTED slot, and
+-- an occupied one makes it fail silently. The count is read off that one slot (before
+-- and after) rather than by rescanning the whole inventory per chest slot.
+local function pullEmptyBuckets(need)
+  local size = facingInventory()
+  if not size then return 0 end
+  local got = 0
+  for s = 1, size do
+    if got >= need then break end
+    local ok, st = pcall(inv.getStackInSlot, sides.front, s)
+    if ok and isEmptyBucket(st) and st.size and st.size > 0 then
+      local dest = C.freeSlot()
+      if not dest then break end
+      robot.select(dest)
+      pcall(inv.suckFromSlot, sides.front, s, math.min(need - got, st.size))
+      local okA, after = pcall(inv.getStackInInternalSlot, dest)
+      got = got + ((okA and isEmptyBucket(after) and after.size) or 0)
+    end
+  end
+  return got
+end
+
+-- Chest access (1,1,0 facing -X) -> above the middle water source, (5,2,7) facing +X.
 -- right, forward 7, right, up 4, forward 4, down 3.
 local function gotoWaterFromChest()
   C.turnRight()
@@ -50,128 +107,70 @@ local function gotoWaterFromChest()
   up(4)
   fwd(4)
   down(3)
-  -- One more step forward, then turn around, to line up the fill.
-  fwd(1)
+end
+
+-- Fill point (5,2,7 facing +X) -> stasis (4,1,3 facing the charger), staying high over
+-- the sugarcane: up 3, turn around, forward 1, left, forward 4, down 4.
+local function gotoStasisFromWater()
+  up(3)
   C.turnAround()
+  fwd(1)
+  C.turnLeft()
+  fwd(4)
+  down(4)
 end
 
-
-local function pullEmptyBuckets()
-  local size = facingInventory()
-  if not size then return 0 end
-  local got = 0
-  for s = 1, size do
-    local ok, st = pcall(inv.getStackInSlot, sides.front, s)
-    if ok and isEmptyBucket(st) and st.size and st.size > 0 then
-      -- Capture the count BEFORE sucking: suckFromSlot may return the moved
-      -- count or just a boolean, and the stack table can be mutated in place,
-      -- so reading st.size afterward is unreliable.
-      local want = st.size
-      robot.select(FETCH_SLOT)
-      local moved = inv.suckFromSlot(sides.front, s, want)
-      if moved then
-        got = got + (type(moved) == "number" and moved or want)
-      end
-    end
-  end
-  return got
+-- Equip the single bucket in the selected slot, right-click the water below with
+-- `fillFn`, and equip it back. The use() return string ("item_used"/"item_placed") is
+-- unreliable for buckets -- OC often reports success while nothing happened -- so judge
+-- by the item: did the bucket in `slot` become a water bucket? Every attempt does
+-- equip/use/equip, so `slot` holds the bucket again afterwards either way.
+local function attemptFill(slot, fillFn)
+  pcall(inv.equip)      -- bucket -> tool slot (the pickaxe comes out into `slot`)
+  pcall(fillFn)         -- right-click the water
+  pcall(inv.equip)      -- bucket back into `slot`, pickaxe back into the tool slot
+  local ok, st = pcall(inv.getStackInInternalSlot, slot)
+  return ok and isWaterBucket(st)
 end
 
-local function countEmptyBuckets()
-  local total = 0
-  for s = 1, (C.INVENTORY_SIZE or 32) do
-    local ok, st = pcall(inv.getStackInInternalSlot, s)
-    if ok and isEmptyBucket(st) and st.size then
-      total = total + st.size
-    end
-  end
-  return total
-end
-
-local function findEmptyBucketSlot()
-  for s = 1, (C.INVENTORY_SIZE or 32) do
-    local ok, st = pcall(inv.getStackInInternalSlot, s)
-    if ok and isEmptyBucket(st) and st.size and st.size > 0 then
-      return s
-    end
-  end
-  return nil
-end
-
--- Fill every empty bucket by moving ONE to a scratch slot, equipping it, using
--- it on the water below, and swapping it back. Empty buckets stack (to 16) but
--- water buckets do not, so each must be filled individually. Water is directly
--- BELOW the robot, so use useDown().
-local SPLIT_SLOT = 23
-local STORE_START = 24
-
-local function fillAllBuckets()
+-- Fill up to `want` held empty buckets, one at a time: empty buckets stack but water
+-- buckets don't, and equip must pick up a single bucket, not the whole stack. Each one
+-- is split into its own empty slot -- picked fresh each time, since a fixed scratch slot
+-- could already hold something and transferTo into an occupied slot just fails -- and it
+-- stays there once filled.
+local function fillBuckets(want)
   local filled = 0
-  local guard = 0
-  while guard < 256 do
-    guard = guard + 1
-    if countEmptyBuckets() == 0 then break end
+  while filled < want do
     if batteryLevel() < 0.2 then break end
+    local from = findEmptyBucketSlot()
+    if not from then break end
+    local split = C.freeSlot()
+    if not split then break end
+    robot.select(from)
+    local okT, moved = pcall(robot.transferTo, split, 1)
+    if not (okT and moved) then break end
 
-    local slot = findEmptyBucketSlot()
-    if not slot then break end
-
-    -- Move exactly ONE empty bucket into the (empty) scratch slot so equip
-    -- picks up a single bucket rather than the whole stack.
-    robot.select(slot)
-    if not pcall(robot.transferTo, SPLIT_SLOT, 1) then break end
-
-    -- The single empty bucket now lives in SPLIT_SLOT. Fill it: for each attempt
-    -- equip it into the tool slot, right-click the water below, then equip it
-    -- back to SPLIT_SLOT and check whether it actually became a water bucket.
-    -- The return string ("item_used"/"item_placed") is unreliable for buckets --
-    -- OC often reports success while nothing happened -- so we judge by the
-    -- item, not the return. Buckets behave differently with the sneaky flag, so
-    -- we try variants. Every attempt does equip/use/equip, so SPLIT_SLOT always
-    -- holds the bucket at the top of each iteration (clean parity).
-    local function attemptFill(fillFn)
-      pcall(inv.equip)      -- SPLIT_SLOT bucket -> tool slot
-      pcall(fillFn)         -- right-click the water
-      pcall(inv.equip)      -- tool slot bucket -> SPLIT_SLOT
-      local ok, st = pcall(inv.getStackInInternalSlot, SPLIT_SLOT)
-      return ok and st and (st.name == WATER_BUCKET_NAME or st.label == WATER_BUCKET_LABEL)
-    end
-
-    robot.select(SPLIT_SLOT)
+    robot.select(split)
+    -- Buckets behave differently with the sneaky flag, so try the variants in turn.
     local success =
-         attemptFill(function() return robot.use(sides.down) end)
-      or attemptFill(function() return robot.useDown() end)
-      or attemptFill(function() return robot.useDown(sides.down, true) end)
+         attemptFill(split, function() return robot.use(sides.down) end)
+      or attemptFill(split, function() return robot.useDown() end)
+      or attemptFill(split, function() return robot.useDown(sides.down, true) end)
 
     if success then
       filled = filled + 1
-      -- Move the full water bucket into its own storage slot so SPLIT_SLOT is
-      -- empty again for the next bucket (water buckets don't stack).
-      robot.select(SPLIT_SLOT)
-      pcall(robot.transferTo, STORE_START + filled - 1)
     else
-      -- Couldn't fill; put the still-empty bucket back and stop to avoid looping.
-      robot.select(SPLIT_SLOT)
-      pcall(robot.transferTo, slot)
+      -- Couldn't fill: put the still-empty bucket back and stop rather than loop.
+      robot.select(split)
+      pcall(robot.transferTo, from)
       break
     end
   end
   return filled
 end
 
--- Fill point (6,2,7 facing -X) -> stasis (4,1,3 facing charger), staying high
--- over the sugarcane. up 3, forward 2, left, forward 4, down 4.
-local function gotoStasisFromWater()
-  up(3)
-  fwd(2)
-  C.turnLeft()
-  fwd(4)
-  down(4)
-end
-
-
-
-local function fill_buckets()
+local function fill_buckets(want)
+  want = want or #C.WATER_SLOTS
   if batteryLevel() < 0.25 then
     return "returning"
   end
@@ -179,15 +178,21 @@ local function fill_buckets()
   C.lastBucketError = nil
   C.lastBucketReport = { taken = 0, filled = 0 }
 
-  -- Stasis -> chest, take empty buckets.
-  gotoChestFromStasis()
+  -- Stasis -> chest. Take empty buckets from all 3 tracked chests -- they can sit in
+  -- any of them, and reading only the level-1 chest could come up empty.
+  C.gotoChestFromStasis()
   if not facingInventory() then
     C.lastBucketError = "not facing the tracked chest"
     C.gotoStasisFromChest()
     return "stasis"
   end
-  C.lastBucketReport.taken = pullEmptyBuckets()
-  if C.lastBucketReport.taken == 0 then
+  local held = countEmptyBuckets()
+  local heldBefore = held
+  C.forEachTrackedChest(function()
+    if held < want then held = held + pullEmptyBuckets(want - held) end
+  end)
+  C.lastBucketReport.taken = held - heldBefore
+  if held == 0 then
     C.lastBucketError = "no empty buckets in chest"
     C.gotoStasisFromChest()
     return "stasis"
@@ -195,7 +200,7 @@ local function fill_buckets()
 
   -- Chest -> over the water, fill.
   gotoWaterFromChest()
-  C.lastBucketReport.filled = fillAllBuckets()
+  C.lastBucketReport.filled = fillBuckets(want)
   if C.lastBucketReport.filled == 0 then
     C.lastBucketError = "filled no buckets (water below?)"
   end

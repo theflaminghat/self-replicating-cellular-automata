@@ -340,7 +340,7 @@ C.BUILD_BOM = {
     ["minecraft:lever"]         = 1,
     ["minecraft:chest"]         = 36,  -- 6 chest stacks x 6 high (CHEST_PLACEMENTS)
     ["minecraft:sand"]          = 8,
-    ["minecraft:bucket"]        = 2,
+    ["minecraft:water_bucket"]  = 2,   -- crafted as empty Buckets, filled before dispatch
     ["Coal"]                    = 128, -- starting generator/furnace fuel
     ["minecraft:diamond_pickaxe"] = 1,  -- the offspring's mining tool
     ["Cactus"]                  = 1,
@@ -597,9 +597,12 @@ function C.scaleTrackedResources()
   -- no longer fit and overflowed in turn. The plan count keeps each item at its true total,
   -- so nothing needed is pushed out. Each name is summed once (the plan already merged
   -- every use), so `put` is called once per item -- no double counting.
+  -- Filled items (water buckets) are tracked the same way, so a bucket filled while the
+  -- offspring still waits on other materials stays in the tracked chest for the retry
+  -- instead of being dumped to overflow, where the dispatch materials check can't see it.
   local plannedCraft = {}
   for _, step in ipairs(C.buildProductionPlan()) do
-    if step.action == "craft" then
+    if step.action == "craft" or step.action == "fill" then
       plannedCraft[step.name] = (plannedCraft[step.name] or 0) + (step.count or 0)
     end
   end
@@ -725,7 +728,7 @@ end
 
 -- Build a dependency-ordered production plan for a whole REQUIREMENTS table
 -- ({ name -> count }), starting from raw base materials. Returns a list of steps in the
--- order they can be executed: { action = "smelt"|"craft"|"crush", name, count, input }.
+-- order they can be executed: { action = "smelt"|"craft"|"crush"|"fill", name, count, input }.
 -- Deepest dependencies come first, so every step's inputs exist by the time it runs. Raw
 -- materials (no recipe) are omitted -- they are gathered, not made.
 --
@@ -789,23 +792,24 @@ local function planForRequirements(requirements)
     end
   end
 
-  -- Emit steps deepest-first (topo order) with the final totals. For a smelt OR crush
-  -- step, record the item the machine actually CONSUMES (the single grid ingredient),
-  -- since callers feed the input, not the result (cobblestone, not the sand it yields).
+  -- Emit steps deepest-first (topo order) with the final totals. For a smelt, crush or
+  -- fill step, record the item actually CONSUMED (the single grid ingredient), since
+  -- callers feed the input, not the result (cobblestone, not the sand it yields).
   local steps = {}
   for _, item in ipairs(topo) do
     local recipe = recipeFor(item)
     local qty = needed[item] or 0
     if recipe and qty > 0 then
       local machineInput
-      if recipe.smelt or recipe.crush then
+      if recipe.smelt or recipe.crush or recipe.fill then
         for i = 1, 9 do
           local g = recipe.grid and recipe.grid[i]
           if g then machineInput = itemName(g); break end
         end
       end
       steps[#steps + 1] = {
-        action = recipe.smelt and "smelt" or (recipe.crush and "crush") or "craft",
+        action = recipe.smelt and "smelt" or (recipe.crush and "crush")
+                 or (recipe.fill and "fill") or "craft",
         name = item,
         count = qty,
         input = machineInput,
@@ -1268,7 +1272,10 @@ C.BUILD_LAYOUT = {
   { slot = 1, name = "minecraft:cobblestone", count = 64 },  -- floor (143 total)
   { slot = 2, name = "minecraft:cobblestone", count = 64 },
   { slot = 3, name = "minecraft:cobblestone", count = 15 },
-  { slot = 22, label = "Coal", count = 128},        -- starting fuel
+  -- Starting fuel: the BOM's 128 coal. A slot holds one 64-stack, so it takes two
+  -- slots -- a single 128-coal slot only ever filled to 64, shipping half the fuel.
+  { slot = 22, label = "Coal", count = 64 },
+  { slot = 23, label = "Coal", count = 64 },
   { slot = C.TOOL_SLOT, label = "Diamond Pickaxe", count = 1 },  -- mining tool
 }
 for key, item in pairs(SLOT_ITEM) do
@@ -1276,8 +1283,9 @@ for key, item in pairs(SLOT_ITEM) do
     { slot = C.SLOTS[key], name = item.name, label = item.label, count = item.count }
 end
 -- Filled water buckets, not empty ones: the offspring places water from these
--- during its build (an empty bucket can't place water). The parent crafts empty
--- buckets (BOM) and fills them before dispatch.
+-- during its build (an empty bucket can't place water). The parent's autocrafter
+-- makes empty Buckets, and the scheduler's fill step (fill_buckets) fills them at
+-- the base's water source while an offspring is waiting to be dispatched.
 for _, s in ipairs(C.WATER_SLOTS) do
   C.BUILD_LAYOUT[#C.BUILD_LAYOUT + 1] = { slot = s, label = "Water Bucket", count = 1 }
 end

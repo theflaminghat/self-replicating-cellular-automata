@@ -2,7 +2,9 @@
 -- Crafting and smelting recipe definitions, split out of common.lua.
 -- Each recipe: result (optional label), yield, and a 9-slot grid (item ids or
 -- { label = ... } tables, nil for empty). Recipes with smelt = true are
--- furnace recipes (single input); the rest are crafting-grid recipes.
+-- furnace recipes (single input), crush = true are crusher recipes, and
+-- fill = true are buckets filled at the base's water source (fill_buckets);
+-- the rest are crafting-grid recipes.
 --
 -- Returns a function that populates C.RECIPES on the shared common table.
 
@@ -501,6 +503,21 @@ return function(C)
       grid = { nil,                    nil,                    nil,
                { label = "Iron Ingot" }, nil,                    { label = "Iron Ingot" },
                nil,                    { label = "Iron Ingot" }, nil },
+    },
+
+    -- Not a crafting-grid recipe: an empty Bucket is FILLED at the base's water source by
+    -- fill_buckets. Declaring it tells the planner a Water Bucket is made from one Bucket,
+    -- and lets the embodied-count credit see a filled bucket as still embodying that Bucket
+    -- (and its iron). Without it, filling the offspring's buckets reads as the empty ones
+    -- vanishing, and the autocrafter re-crafts them from iron the build needs elsewhere.
+    -- fill = true keeps it out of the crafting grid, the furnace and the crusher.
+    ["minecraft:water_bucket"] = {
+      result = { label = "Water Bucket" },
+      yield = 1,
+      fill = true,
+      grid = { { label = "Bucket" }, nil, nil,
+               nil,                  nil, nil,
+               nil,                  nil, nil },
     },
 
     ["minecraft:cactus_green"] = {

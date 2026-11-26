@@ -194,6 +194,8 @@ for i, step in ipairs(plan) do
   print("--------------------------------")
   if step.action == "smelt" and skip_furnacing then
     print("  (skipped -- skip_furnacing)")
+  elseif step.action == "fill" then
+    print("  (skipped -- filled at the water by fill_buckets, not crafted)")
   elseif step.action == "smelt" then
     doSmelt(step)
   else
