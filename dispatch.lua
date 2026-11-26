@@ -167,10 +167,12 @@ end
 -- Carry the offspring out toward `dir`, bridge to its spot, place it, hand over the
 -- resources, then retrace the exact path back to stasis. Movements are the fixed
 -- per-direction routes; the robot starts at stasis (4,1,3) facing the charger (-Z).
-local function placeOffspring(dir)
-  -- Mirror the build layout in our own inventory (type marker = this direction),
+-- `robotType` is the type stamped into the offspring's slot 44 (see C.offspringTypes);
+-- it defaults to the travel direction.
+local function placeOffspring(dir, robotType)
+  -- Mirror the build layout in our own inventory (type marker = the offspring's type),
   -- so the slot-for-slot deposit lands everything where the offspring expects it.
-  C.arrangeBuildLayout(COMPASS_INDEX[dir])
+  C.arrangeBuildLayout(COMPASS_INDEX[robotType or dir])
 
   local nav = {}
   local function recFwd(n) fwd(n); nav[#nav + 1] = { "fwd", n } end
@@ -212,12 +214,13 @@ end
 
 -- ---------------------------------------------------------------------------
 
-local function dispatch(direction)
+local function dispatch(direction, robotType)
   if batteryLevel() < 0.25 then
     return "returning"
   end
   C.lastDispatchError = nil
-  C.lastDispatch = { hdd = false, eeprom = false, redstone = false, dir = direction }
+  C.lastDispatch = { hdd = false, eeprom = false, redstone = false, dir = direction,
+                     type = robotType or direction }
 
   -- Stasis -> assembler stand (6,1,3) -> computer stand (7,1,3), case in front.
   C.gotoAssemblerFromStasis()
@@ -263,7 +266,7 @@ local function dispatch(direction)
   C.gotoStasisFromAssembler()
 
   -- Now carry the offspring out to its compass direction and set it up.
-  placeOffspring(direction)
+  placeOffspring(direction, robotType)
   return "stasis"
 end
 

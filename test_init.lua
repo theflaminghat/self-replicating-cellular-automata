@@ -73,14 +73,19 @@ end
 
 local robotType, cobbleCount = C.detectRobotType()
 local offspring = C.offspringDirections(robotType)
+local offspringTypes = C.offspringTypes(robotType)
 local tracked = C.trackedResourceCount(robotType)
 
 do
+  local sent = {}
+  for i, dir in ipairs(offspring) do
+    sent[#sent + 1] = dir .. " as " .. tostring(offspringTypes[i])
+  end
   local lines = {}
   lines[#lines + 1] = string.format("slot %d cobblestone: %d", C.TYPE_SLOT, cobbleCount)
   lines[#lines + 1] = string.format("robot type:         %s", robotType)
   lines[#lines + 1] = string.format("offspring sent to:  %s",
-    (#offspring > 0) and table.concat(offspring, ", ") or "(none)")
+    (#sent > 0) and table.concat(sent, ", ") or "(none)")
   lines[#lines + 1] = string.format("tracked resources:  %d", tracked)
   lines[#lines + 1] = ""
   lines[#lines + 1] = "Type key (cobble count -> type):"

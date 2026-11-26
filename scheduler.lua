@@ -527,9 +527,10 @@ local function dispatchStep()
   if not pendingDispatch then return end
   if C.batteryLevel() < 0.25 then return end  -- charge first; retry next pass
 
-  -- Direction for the offspring just collected. buildStep won't assemble another
-  -- while a dispatch is pending, so builtCount stays put and this stays correct.
+  -- Direction and type for the offspring just collected. buildStep won't assemble
+  -- another while a dispatch is pending, so builtCount stays put and these stay correct.
   local dir = (C.offspringPlan or {})[builtCount]
+  local offspringType = (C.offspringTypePlan or {})[builtCount]
   if not dir then
     -- Plan exhausted (nothing to place). Clear the flag so we don't spin on it.
     pendingDispatch = false
@@ -563,7 +564,7 @@ local function dispatchStep()
 
   -- Only clear the pending flag if the dispatch actually finished (not a low
   -- battery bail), so an interrupted dispatch is retried.
-  if states.dispatch(dir) ~= "returning" then
+  if states.dispatch(dir, offspringType) ~= "returning" then
     pendingDispatch = false
     saveReplication()
   end
@@ -699,6 +700,7 @@ local function scheduler()
   -- holds everything replication requires (plus the spruce-sapling/coal floors).
   C.robotType = C.detectRobotType()
   C.offspringPlan = C.offspringDirections(C.robotType)
+  C.offspringTypePlan = C.offspringTypes(C.robotType)   -- type for each, index for index
   C.baseMaterials = C.baseMaterialsForBuild()
   C.scaleTrackedResources()
 

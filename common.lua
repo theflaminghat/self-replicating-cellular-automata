@@ -218,15 +218,22 @@ C.FLOOR_OVERRIDES = {
 --   1..8     -> a compass direction, clockwise from North:
 --               1 N, 2 NE, 3 E, 4 SE, 5 S, 6 SW, 7 W, 8 NW
 --
--- Compass directions map to the world facing convention (0=+Z, 1=+X, 2=-Z,
--- 3=-X). We take North = -Z (facing 2) and go clockwise: N(-Z) -> E(+X) ->
--- S(+Z) -> W(-X). The four intercardinals sit between them.
+-- Directions are in the robot's own frame (facing 0=+Z, 1=+X, 2=-Z, 3=-X). Every base
+-- is laid out facing +X, which is EAST when the Genesis robot is placed facing east.
+-- Turning left from +X faces +Z, so +Z is NORTH, -Z south and -X west. (This frame's z
+-- counts north; Minecraft's F3 z counts south.) The dispatch routes carry N copies +Z,
+-- E +X, S -Z and W -X, each to the spot 32 blocks from the corner: a 32-block grid.
 --
--- Offspring rules by type:
---   Genesis            -> send robots outward to N, E, S, W.
---   Main cardinal      -> send one robot FORWARD (its own direction) and one to
---                         its RIGHT.
---   Secondary cardinal -> send one robot to its RIGHT only.
+-- Offspring rules by type. A copy's TRAVEL direction picks the dispatch route; its TYPE
+-- is what gets stamped into its slot 44, and the two differ for the right-hand copy:
+--   Genesis       -> one copy each way N, E, S, W, of those types.
+--   Main cardinal -> one copy straight on, of its own type, and one to its RIGHT, of
+--                    the diagonal type between the two (N->NE, E->SE, S->SW, W->NW).
+--   Diagonal      -> one copy onward (NE east, SE south, SW west, NW north), of its
+--                    own type.
+-- So the four main arms run straight out from the Genesis base, and each diagonal type
+-- fills the quarter of the grid to its arm's right, one cell after another. Every grid
+-- cell gets exactly one base, and no copy is ever sent to a spot that already has one.
 -- ---------------------------------------------------------------------------
 
 C.TYPE_SLOT = 44
@@ -239,67 +246,67 @@ C.COMPASS = {
   [5] = "S", [6] = "SW", [7] = "W", [8] = "NW",
 }
 
--- Which compass indices are main (cardinal) vs secondary (intercardinal).
+-- Which compass indices are main (cardinal) vs diagonal (intercardinal).
 C.MAIN_CARDINALS = { N = true, E = true, S = true, W = true }
-
--- Compass name -> world facing (0=+Z, 1=+X, 2=-Z, 3=-X). Only the four main
--- cardinals correspond to a pure facing; intercardinals face their clockwise
--- cardinal for "forward"/"right" purposes (they only ever send a right probe).
-C.COMPASS_FACING = {
-  N = 2,  -- -Z
-  E = 1,  -- +X
-  S = 0,  -- +Z
-  W = 3,  -- -X
-  NE = 1, -- treat as E-ish for right-hand turns
-  SE = 0,
-  SW = 3,
-  NW = 2,
-}
-
--- The world facing each offspring is physically PLACED at. A placed robot inherits the
--- placer's facing, and each dispatch route ends bridging in a fixed direction, so an
--- offspring's placement facing is determined by its compass type. building.lua reads
--- this on boot to turn a freshly-placed offspring to a common EAST (+X) orientation, so
--- every base is laid out identically regardless of which way the offspring was carried.
--- MUST match the recBridgeBack facing of the matching route in dispatch.lua's
--- placeOffspring: N bridges +Z(0), E +X(1), S -Z(2), W -X(3). Genesis is hand-placed by
--- the player facing +X, so it needs no turn (the `or 1` fallback below).
-C.PLACEMENT_FACING = { N = 0, E = 1, S = 2, W = 3 }
-
-function C.placementFacing(robotType)
-  return C.PLACEMENT_FACING[robotType] or 1
-end
 
 -- Clockwise compass order for the four cardinals: N -> E -> S -> W -> N.
 -- "Right" of a cardinal is the next one clockwise.
 local CARDINAL_RIGHT = { N = "E", E = "S", S = "W", W = "N" }
 
--- Given a robot's type (Genesis or a compass name), return the list of compass
--- directions it should send offspring toward.
+-- The diagonal type a main cardinal gives its right-hand copy: the quarter of the grid
+-- between its own direction and its right.
+local SIDE_TYPE = { N = "NE", E = "SE", S = "SW", W = "NW" }
+
+-- The one direction each diagonal type travels and sends its copy: its arm's right.
+local DIAGONAL_DIR = { NE = "E", SE = "S", SW = "W", NW = "N" }
+
+-- The facing each offspring is physically PLACED at. A placed robot inherits the placer's
+-- facing, and each dispatch route ends bridging in a fixed direction, so the placement
+-- facing follows from the direction the copy was CARRIED: its own direction for a main
+-- cardinal, DIAGONAL_DIR for a diagonal type. building.lua reads this on boot to turn a
+-- freshly placed offspring to +X, so every base is laid out identically whichever way it
+-- was carried. MUST match the recBridgeBack facing of the matching route in dispatch.lua's
+-- placeOffspring: N bridges +Z(0), E +X(1), S -Z(2), W -X(3). Genesis is hand-placed by
+-- the player facing +X, so it needs no turn (the `or 1` fallback below).
+C.PLACEMENT_FACING = { N = 0, E = 1, S = 2, W = 3 }
+
+function C.placementFacing(robotType)
+  return C.PLACEMENT_FACING[robotType]
+      or C.PLACEMENT_FACING[DIAGONAL_DIR[robotType]]
+      or 1
+end
+
+-- Given a robot's type (Genesis or a compass name), return the list of directions it
+-- sends offspring in -- the dispatch route for each. See C.offspringTypes for the type
+-- each of those copies is given; the two lists line up index for index.
 function C.offspringDirections(robotType)
   if robotType == C.GENESIS then
     return { "N", "E", "S", "W" }
   end
   if C.MAIN_CARDINALS[robotType] then
-    -- Forward (its own direction) and to its right (next cardinal clockwise).
-    return { robotType, CARDINAL_RIGHT[robotType] }
+    return { robotType, CARDINAL_RIGHT[robotType] }   -- straight on, then right
   end
-  -- Secondary cardinal (intercardinal): a right probe only. Its "right" is the
-  -- next cardinal clockwise from the cardinal it leads into. Map each
-  -- intercardinal to the cardinal on its right:
-  --   NE -> E, SE -> S, SW -> W, NW -> N
-  local INTER_RIGHT = { NE = "E", SE = "S", SW = "W", NW = "N" }
-  return { INTER_RIGHT[robotType] }
+  return { DIAGONAL_DIR[robotType] }                  -- diagonal: onward only
 end
 
--- Number of tracked resources this robot type manages. Main cardinals and
--- Genesis carry the full tracked set; secondary cardinals carry a reduced set
--- (probes that only scout, not full builders). Adjust to taste.
-function C.trackedResourceCount(robotType)
-  if robotType == C.GENESIS or C.MAIN_CARDINALS[robotType] then
-    return #C.TRACKED_RESOURCES
+-- The type stamped into each copy's slot 44, index for index with C.offspringDirections.
+-- The right-hand copy of a main cardinal is the DIAGONAL type, not the cardinal it travels
+-- toward: a copy typed by its travel direction would itself send a right-hand copy, and
+-- from the third generation on those land on spots that already have a base.
+function C.offspringTypes(robotType)
+  if robotType == C.GENESIS then
+    return { "N", "E", "S", "W" }
   end
-  return math.min(2, #C.TRACKED_RESOURCES)
+  if C.MAIN_CARDINALS[robotType] then
+    return { robotType, SIDE_TYPE[robotType] }
+  end
+  return { robotType }
+end
+
+-- Number of tracked resources this robot type manages. Every type builds a full base and
+-- full copies (C.buildsNeeded scales the amounts), so every type tracks the full set.
+function C.trackedResourceCount(robotType)
+  return #C.TRACKED_RESOURCES
 end
 
 -- Detect this robot's type at initialization by reading the cobblestone count in
